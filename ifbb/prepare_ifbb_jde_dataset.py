@@ -154,7 +154,8 @@ class IFBBJDEDatasetBuilder:
         skipped_group_count = 0
         missing_mapping_count = 0
 
-        # We will batch writes to Drive to make it slightly more resilient, but saving file-by-file is fine.
+        # Filter and prepare valid images
+        valid_tasks = []
         for i, img_path in enumerate(images):
             filename = img_path.name
             athlete_name = file_to_athlete.get(filename)
@@ -169,43 +170,58 @@ class IFBBJDEDatasetBuilder:
                 
             athlete_id = self._get_id(athlete_name)
             split = 'train' if i < split_idx else 'val'
+            valid_tasks.append((img_path, athlete_id, split, filename))
+
+        if not valid_tasks:
+            shutil.rmtree(self.temp_dir)
+            self.temp_dir.mkdir()
+            return True
+
+        # Process in batches for proper GPU utilization
+        batch_size = 16
+        for i in range(0, len(valid_tasks), batch_size):
+            batch = valid_tasks[i:i + batch_size]
+            batch_paths = [str(t[0]) for t in batch]
             
-            # YOLO Auto-labeling
-            results = self.detector(img_path, verbose=False)[0]
-            person_boxes = [box for box in results.boxes if int(box.cls) == 0]
+            # YOLO Auto-labeling (batched)
+            results = self.detector(batch_paths, verbose=False, device=self.device)
             
-            if not person_boxes:
-                continue
-            
-            best_box = sorted(person_boxes, key=lambda x: x.conf, reverse=True)[0]
-            xywh = best_box.xywhn[0].cpu().numpy()
-            
-            label_line = f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}\n"
-            new_img_name = f"{athlete_id}_{zip_path.stem}_{filename}"
-            
-            dest_img_path = self.output_dir / split / 'images' / new_img_name
-            dest_lbl_path = self.output_dir / split / 'labels' / f"{Path(new_img_name).stem}.txt"
-            
-            # Copy to persistent Drive folder
-            shutil.copy(img_path, dest_img_path)
-            with open(dest_lbl_path, "w") as f:
-                f.write(label_line)
-            
-            # Save visual check
-            if self.vis_count < 50:
-                img_cv = cv2.imread(str(img_path))
-                h, w, _ = img_cv.shape
-                cx, cy, bw, bh = xywh
-                x1 = int((cx - bw / 2) * w)
-                y1 = int((cy - bh / 2) * h)
-                x2 = int((cx + bw / 2) * w)
-                y2 = int((cy + bh / 2) * h)
-                cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(img_cv, f"ID: {athlete_id}", (x1, max(y1 - 10, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-                cv2.imwrite(str(self.debug_vis_dir / new_img_name), img_cv)
-                self.vis_count += 1
+            for j, result in enumerate(results):
+                img_path, athlete_id, split, filename = batch[j]
                 
-            processed_count += 1
+                person_boxes = [box for box in result.boxes if int(box.cls) == 0]
+                if not person_boxes:
+                    continue
+                
+                best_box = sorted(person_boxes, key=lambda x: x.conf, reverse=True)[0]
+                xywh = best_box.xywhn[0].cpu().numpy()
+                
+                label_line = f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}\n"
+                new_img_name = f"{athlete_id}_{zip_path.stem}_{filename}"
+                
+                dest_img_path = self.output_dir / split / 'images' / new_img_name
+                dest_lbl_path = self.output_dir / split / 'labels' / f"{Path(new_img_name).stem}.txt"
+                
+                # Copy to persistent Drive folder
+                shutil.copy(img_path, dest_img_path)
+                with open(dest_lbl_path, "w") as f:
+                    f.write(label_line)
+                
+                # Save visual check
+                if self.vis_count < 50:
+                    img_cv = cv2.imread(str(img_path))
+                    h, w, _ = img_cv.shape
+                    cx, cy, bw, bh = xywh
+                    x1 = int((cx - bw / 2) * w)
+                    y1 = int((cy - bh / 2) * h)
+                    x2 = int((cx + bw / 2) * w)
+                    y2 = int((cy + bh / 2) * h)
+                    cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(img_cv, f"ID: {athlete_id}", (x1, max(y1 - 10, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    cv2.imwrite(str(self.debug_vis_dir / new_img_name), img_cv)
+                    self.vis_count += 1
+                    
+                processed_count += 1
         
         print(f"  [DONE] Processed {processed_count} images (skipped {skipped_group_count} group shots, {missing_mapping_count} missing DB map).")
 
