@@ -1,57 +1,71 @@
-import comet_ml
+import os
+import argparse
 from ultralytics import YOLO
 from datetime import datetime
 from functools import partial
-
-"""
-import os
-# Set number of threads
-N_THREADS = '8'
-os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-os.environ['OMP_NUM_THREADS'] = N_THREADS
-os.environ['OPENBLAS_NUM_THREADS'] = N_THREADS
-os.environ['MKL_NUM_THREADS'] = N_THREADS
-os.environ['VECLIB_MAXIMUM_THREADS'] = N_THREADS
-os.environ['NUMEXPR_NUM_THREADS'] = N_THREADS
-"""
-
-# Initialize COMET logger, first log done in notebook where API key was asked, now seems to be saved in .comet.config
 from ultralytics.utils import SETTINGS
-SETTINGS['comet'] = True  # set True to log using Comet.ml
-comet_ml.init()
 
-from tracker.evaluation.mot_callback import mot_eval
+def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, use_mlflow=True):
+    # Enable MLflow and/or Comet
+    if use_mlflow:
+        try:
+            import mlflow
+            SETTINGS['mlflow'] = True
+            print("MLflow logging enabled.")
+        except ImportError:
+            print("MLflow not found. Install with 'pip install mlflow'")
 
+    # Comet.ml is also supported natively
+    try:
+        import comet_ml
+        SETTINGS['comet'] = True
+        print("Comet logging enabled.")
+    except ImportError:
+        pass
 
-# Initialize model and load matching weights
-model = YOLO('yolo11s-jde.yaml', task='jde').load('./../models/yolo11s.pt')
+    from tracker.evaluation.mot_callback import mot_eval
 
-epochs = 30
-batch = 32
+    # Initialize model with JDE task
+    model = YOLO('yolo11s-jde.yaml', task='jde').load('yolo11s.pt')
 
-model.add_callback("on_val_end", partial(mot_eval, period=epochs))   # Evaluate every X epochs
-model.train(
-    project='reid_xps',
-    name=f'CH-jde-{batch}b-{epochs}e_TBHS_m075_1280px' + '_' + datetime.now().strftime('%Y%m%d-%H%M%S'),
+    # Add callback for MOT evaluation every N epochs
+    model.add_callback("on_val_end", partial(mot_eval, period=max(1, epochs // 5)))
 
-    data='crowdhuman.yaml',
-    epochs=epochs,
-    batch=batch,
-    device=[0,1,2,3,4,5,6,7],
-    # bbox_erase=0.1,
-    imgsz=1280,
-    # clr=0.5,
-    # Freeze layers up to N-1. 24 trains only Re-ID branch, 23 trains only heads, 11 freezes backbone
-    # freeze=23,
+    model.train(
+        project=project_dir, 
+        name=name,
+        data=data_yaml,
+        epochs=epochs,
+        batch=batch,
+        device=0, 
+        imgsz=imgsz,
+        close_mosaic=0,     # Required for JDE
+        patience=25,
+        tracker='jdetracker.yaml',
+        save=True,
+        save_json=True,
+        plots=True,
+        verbose=True
+    )
 
-    close_mosaic=0,     # Always 0 for JDE
-    patience=25,
-    tracker='jdetracker.yaml',  # Tracker config file with ReID activated
-
-    save=True,
-    save_json=True,
-    plots=True,
-    verbose=True,
-    cache=False,
-    amp=False,
-)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", type=str, default="datasets/ifbb_jde/ifbb_jde.yaml")
+    parser.add_argument("--project", type=str, required=True, help="GDrive path for results")
+    parser.add_argument("--name", type=str, default="ifbb_jde_v1")
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch", type=int, default=32)
+    parser.add_argument("--imgsz", type=int, default=1280)
+    parser.add_argument("--no_mlflow", action="store_true", help="Disable MLflow")
+    
+    args = parser.parse_args()
+    
+    train_jde(
+        data_yaml=args.data,
+        project_dir=args.project,
+        name=args.name,
+        epochs=args.epochs,
+        batch=args.batch,
+        imgsz=args.imgsz,
+        use_mlflow=not args.no_mlflow
+    )
