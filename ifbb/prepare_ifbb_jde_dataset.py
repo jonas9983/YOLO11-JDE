@@ -4,7 +4,6 @@ import torch
 import shutil
 import argparse
 import zipfile
-import cv2
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
@@ -19,6 +18,13 @@ class IFBBJDEDatasetBuilder:
         self.device = device
         self.temp_dir = Path("/tmp/ifbb_jde_unzip")
         self.detector = YOLO("yolo11n.pt").to(self.device)
+        
+        print(f"\n--- IFBB JDE DATASET BUILDER ---")
+        print(f"Source Root: {self.source_root.absolute()}")
+        print(f"Output Dataset: {self.output_dir.absolute()}")
+        print(f"Tracking DB: {self.tracking_db_path.absolute()}")
+        print(f"Device: {self.device.upper()}")
+        print(f"--------------------------------\n")
         
         self.id_map = {}
         self.next_id = 0
@@ -59,15 +65,16 @@ class IFBBJDEDatasetBuilder:
         return res is not None
 
     def process_contest(self, zip_path, year, contest_name):
-        # Setup clean local workspace
         if self.temp_dir.exists(): shutil.rmtree(self.temp_dir)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         
-        # Unzip
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(self.temp_dir)
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(self.temp_dir)
+        except Exception as e:
+            print(f"  [ERROR] Failed to unzip {zip_path.name}: {e}")
+            return False
         
-        # Get DB mapping
         conn = sqlite3.connect(self.db_path)
         file_to_athlete = {row[0]: row[1] for row in conn.execute("SELECT image_filename, athlete_name FROM athletes WHERE year=? AND contest_name=?", (year, contest_name)).fetchall()}
         conn.close()
@@ -75,20 +82,19 @@ class IFBBJDEDatasetBuilder:
         images = [img for img in self.temp_dir.glob("**/*") if img.suffix.lower() in ['.jpg', '.jpeg', '.png']]
         if not images: return True
 
-        # Prepare batching
         batch_size = 256
-        
-        # Process and save to a local temporary folder first
         contest_out_dir = Path(f"/tmp/contest_output/{year}_{contest_name.replace(' ', '_')}")
         contest_out_dir.mkdir(parents=True, exist_ok=True)
         
+        processed_imgs = 0
         for i in range(0, len(images), batch_size):
             batch = images[i:i + batch_size]
             results = self.detector([str(p) for p in batch], verbose=False, device=self.device)
             
             for j, res in enumerate(results):
                 athlete_name = file_to_athlete.get(batch[j].name)
-                if not athlete_name or "COMPARISON" in athlete_name.upper() or "AWARD" in athlete_name.upper(): continue
+                if not athlete_name or "COMPARISON" in athlete_name.upper() or "AWARD" in athlete_name.upper() or "OVERALL" in athlete_name.upper() or "GUEST POSING" in athlete_name.upper(): 
+                    continue
                 
                 boxes = [b for b in res.boxes if int(b.cls) == 0]
                 if not boxes: continue
@@ -96,35 +102,57 @@ class IFBBJDEDatasetBuilder:
                 best = sorted(boxes, key=lambda x: x.conf, reverse=True)[0]
                 xywh = best.xywhn[0].cpu().numpy()
                 
-                # Clean Filename: {athlete_id}_{filename}
                 athlete_id = self._get_id(athlete_name)
                 save_name = f"{athlete_id}_{batch[j].name}"
                 
                 shutil.copy(batch[j], contest_out_dir / save_name)
                 with open(contest_out_dir / f"{Path(save_name).stem}.txt", "w") as f:
                     f.write(f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}")
+                processed_imgs += 1
         
-        # Zip contest and move to final Drive output
         final_zip = self.output_dir / f"{year}_{contest_name.replace(' ', '_')}.zip"
         shutil.make_archive(str(final_zip.with_suffix('')), 'zip', contest_out_dir)
         shutil.rmtree(contest_out_dir)
         shutil.rmtree(self.temp_dir)
+        print(f"  [SUCCESS] Zipped {processed_imgs} valid athlete images to {final_zip.name}")
         return True
 
     def run(self, years):
+        if not self.db_path.exists():
+            print(f"[CRITICAL ERROR] Database file not found at: {self.db_path.absolute()}")
+            return
+
         conn = sqlite3.connect(self.db_path)
         contests = conn.execute("SELECT DISTINCT year, contest_name FROM athletes").fetchall()
         conn.close()
         
-        for year, contest in contests:
-            if str(year) not in years or self.is_contest_processed(year, contest): continue
+        print(f"Found {len(contests)} contests in the database.")
+        
+        processed_contests = 0
+        skipped_contests = 0
+
+        for year, contest in tqdm(contests, desc="Processing Contests"):
+            if str(year) not in years:
+                continue
+                
+            if self.is_contest_processed(year, contest):
+                skipped_contests += 1
+                continue
+                
             zip_path = self.source_root / str(year) / f"{year}_{contest.replace(' ', '_')}.zip"
             if zip_path.exists():
+                tqdm.write(f"\nProcessing NEW contest: {year} {contest}")
                 if self.process_contest(zip_path, year, contest):
                     conn = sqlite3.connect(self.tracking_db_path)
                     conn.execute("INSERT INTO processed_contests VALUES (?, ?)", (year, contest))
                     conn.commit(); conn.close()
-                    print(f"Finished {contest}")
+                    processed_contests += 1
+            else:
+                tqdm.write(f"\n  [WARNING] Zip not found for {year} {contest} at {zip_path}")
+        
+        print(f"\n--- COMPLETE ---")
+        print(f"Processed: {processed_contests}")
+        print(f"Skipped (already done): {skipped_contests}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -132,4 +160,6 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True)
     parser.add_argument("--years", default="2024,2025,2026")
     args = parser.parse_args()
-    IFBBJDEDatasetBuilder(args.source, args.output).run(args.years.split(','))
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    IFBBJDEDatasetBuilder(args.source, args.output, device=device).run(args.years.split(','))
