@@ -16,7 +16,7 @@ seaborn>=0.11.0
 ultralytics-thop>=2.0.0
 
 # IFBB Data Ingestion (Installed as a package)
-git+https://github.com/jonas9983/ifbb_data_ingestion.git
+git+https://github.com/jonas9983/ifbb_data_ingestion.git@feat/fix-imports
 
 # Additional for training/JDE
 mlflow
