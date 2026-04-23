@@ -4,6 +4,7 @@ import torch
 import shutil
 import argparse
 import zipfile
+import cv2
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
