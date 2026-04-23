@@ -4,7 +4,6 @@ import torch
 import shutil
 import argparse
 import zipfile
-import re
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
@@ -21,9 +20,9 @@ class IFBBJDEDatasetBuilder:
         self.device = device
         self.temp_dir = Path("temp_unzip")
         
-        print(f"Initializing Builder...")
+        print(f"\n--- DEBUG START ---")
         print(f"Source Root: {self.source_root.absolute()}")
-        print(f"Database: {self.db_path}")
+        print(f"Database Path: {self.db_path.absolute()}")
         
         # Load a base model for auto-labeling (person detection)
         self.detector = YOLO("yolo11n.pt").to(self.device)
@@ -43,6 +42,7 @@ class IFBBJDEDatasetBuilder:
         return self.id_map[athlete_name]
 
     def prepare_directories(self):
+        print(f"Preparing output directories at: {self.output_dir}")
         for split in ['train', 'val']:
             (self.output_dir / split / 'images').mkdir(parents=True, exist_ok=True)
             (self.output_dir / split / 'labels').mkdir(parents=True, exist_ok=True)
@@ -51,24 +51,25 @@ class IFBBJDEDatasetBuilder:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
     def process_zip(self, zip_path, split_ratio=0.9):
-        print(f"  Unzipping {zip_path.name}...")
+        print(f"  [ZIP] Unzipping {zip_path.name}...")
         try:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.temp_dir)
         except Exception as e:
-            print(f"  [Error] Failed to unzip {zip_path.name}: {e}")
+            print(f"  [ERROR] Failed to unzip {zip_path.name}: {e}")
             return
 
         # ZIP contains athlete folders
         athlete_folders = [f for f in self.temp_dir.iterdir() if f.is_dir()]
+        print(f"  [INFO] Found {len(athlete_folders)} potential athlete folders in ZIP.")
         
         for athlete_folder in athlete_folders:
             athlete_name = athlete_folder.name
             athlete_id = self._get_id(athlete_name)
             
-            # Find all images recursively inside athlete folder
             images = [img for img in athlete_folder.glob("**/*") if img.suffix.lower() in ['.jpg', '.jpeg', '.png']]
             if not images:
+                print(f"    [SKIP] No images found for athlete: {athlete_name}")
                 continue
 
             np.random.shuffle(images)
@@ -78,21 +79,17 @@ class IFBBJDEDatasetBuilder:
             for i, img_path in enumerate(images):
                 split = 'train' if i < split_idx else 'val'
                 
-                # YOLO Auto-labeling
                 results = self.detector(img_path, verbose=False)[0]
                 person_boxes = [box for box in results.boxes if int(box.cls) == 0]
                 
                 if not person_boxes:
                     continue
                 
-                # Get best person box
                 best_box = sorted(person_boxes, key=lambda x: x.conf, reverse=True)[0]
                 xywh = best_box.xywhn[0].cpu().numpy()
                 
-                # Format: class x y w h identity
                 label_line = f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}\n"
                 
-                # Global unique filename: {id}_{zip_name}_{orig_name}
                 new_img_name = f"{athlete_id}_{zip_path.stem}_{img_path.name}"
                 dest_img_path = self.output_dir / split / 'images' / new_img_name
                 dest_lbl_path = self.output_dir / split / 'labels' / f"{Path(new_img_name).stem}.txt"
@@ -103,57 +100,74 @@ class IFBBJDEDatasetBuilder:
                 processed_count += 1
             
             if processed_count > 0:
-                print(f"    Processed athlete '{athlete_name}': {processed_count} images.")
+                print(f"    [DONE] Athlete '{athlete_name}': {processed_count} images.")
 
-        # Cleanup temp
         shutil.rmtree(self.temp_dir)
         self.temp_dir.mkdir()
 
     def run(self, years=['2024', '2025', '2026'], limit_zips=None):
         if not self.db_path.exists():
-            print(f"[Error] Database not found at {self.db_path}")
+            print(f"[CRITICAL ERROR] Database file not found at: {self.db_path.absolute()}")
+            if self.source_root.exists():
+                print(f"Contents of {self.source_root.absolute()}:")
+                print(os.listdir(self.source_root))
+            else:
+                print(f"Source Root folder does not exist!")
             return
 
+        print(f"Connecting to database...")
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get unique year/contest pairs
-        cursor.execute("SELECT DISTINCT year, contest_name FROM athletes")
-        contests = cursor.fetchall()
-        conn.close()
+        try:
+            cursor.execute("SELECT DISTINCT year, contest_name FROM athletes")
+            contests = cursor.fetchall()
+        except sqlite3.OperationalError as e:
+            print(f"[ERROR] Database error: {e}")
+            return
+        finally:
+            conn.close()
 
-        print(f"Found {len(contests)} unique contests in database.")
+        print(f"Database contains {len(contests)} unique contests.")
+        if not contests:
+            print("[ERROR] Database returned 0 contests. Check if 'athletes' table has data.")
+            return
         
         zip_count = 0
         for year, contest_name in contests:
-            if str(year) not in years:
+            s_year = str(year)
+            if s_year not in years:
                 continue
 
-            # Construct expected ZIP path
             c_clean = self._sanitize(contest_name)
             zip_filename = f"{year}_{c_clean}.zip"
-            zip_path = self.source_root / str(year) / zip_filename
+            zip_path = self.source_root / s_year / zip_filename
 
             if not zip_path.exists():
-                # Try fallback: maybe it's in the root or has slightly different name
-                print(f"  [Skip] ZIP not found: {zip_path}")
+                print(f"  [NOT FOUND] {zip_path}")
+                year_folder = self.source_root / s_year
+                if year_folder.exists():
+                    files = os.listdir(year_folder)
+                    print(f"    Found {len(files)} files in {s_year}/. First few: {files[:5]}")
+                else:
+                    print(f"    Year folder {s_year}/ does not exist in Drive.")
                 continue
 
-            print(f"Processing contest: {contest_name} ({year})...")
+            print(f"Processing: {contest_name} ({year})")
             self.process_zip(zip_path)
             zip_count += 1
             
             if limit_zips and zip_count >= limit_zips:
-                print(f"  Reached limit of {limit_zips} zips.")
+                print(f"Reached limit of {limit_zips} zips.")
                 break
 
-        # Save identity mapping
         with open(self.output_dir / "id_map.txt", "w") as f:
             for name, idx in self.id_map.items():
                 f.write(f"{idx}: {name}\n")
         
         self.create_dataset_yaml()
-        print(f"\nSuccessfully processed {zip_count} contests.")
+        print(f"\nTotal contests processed: {zip_count}")
+        print(f"--- DEBUG END ---\n")
 
     def create_dataset_yaml(self):
         yaml_content = f"""
@@ -168,13 +182,12 @@ names:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=str, required=True, help="Path to BodybuildingDataset root")
-    parser.add_argument("--output", type=str, default="datasets/ifbb_jde", help="Output dataset dir")
-    parser.add_argument("--limit", type=int, default=None, help="Limit number of zips")
-    parser.add_argument("--years", type=str, default="2024,2025,2026", help="Comma separated years")
+    parser.add_argument("--source", type=str, required=True)
+    parser.add_argument("--output", type=str, default="datasets/ifbb_jde")
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--years", type=str, default="2024,2025,2026")
     args = parser.parse_args()
 
     builder = IFBBJDEDatasetBuilder(source_root=args.source, output_dir=args.output)
     builder.prepare_directories()
     builder.run(years=args.years.split(','), limit_zips=args.limit)
-    print(f"Dataset preparation complete!")
