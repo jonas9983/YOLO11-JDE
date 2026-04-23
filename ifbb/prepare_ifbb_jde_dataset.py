@@ -65,6 +65,10 @@ class IFBBJDEDatasetBuilder:
             if row[1] >= self.next_id: self.next_id = row[1] + 1
         conn.close()
 
+    def _sanitize(self, name):
+        """Standard sanitization used during ingestion."""
+        return "".join(c for c in name if c.isalnum() or c in (" ", "-", "_")).strip().replace(" ", "_")
+
     def _get_id(self, athlete_name):
         athlete_name = athlete_name.strip().upper()
         if athlete_name not in self.id_map:
