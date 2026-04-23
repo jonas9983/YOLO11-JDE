@@ -50,7 +50,7 @@ class IFBBJDEDatasetBuilder:
             shutil.rmtree(self.temp_dir)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
-    def process_zip(self, zip_path, split_ratio=0.9):
+    def process_zip(self, zip_path, year, contest_name, split_ratio=0.9):
         print(f"  [ZIP] Unzipping {zip_path.name}...")
         try:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -59,48 +59,65 @@ class IFBBJDEDatasetBuilder:
             print(f"  [ERROR] Failed to unzip {zip_path.name}: {e}")
             return
 
-        # ZIP contains athlete folders
-        athlete_folders = [f for f in self.temp_dir.iterdir() if f.is_dir()]
-        print(f"  [INFO] Found {len(athlete_folders)} potential athlete folders in ZIP.")
+        # Fetch mapping of filename -> athlete_name from DB for this contest
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT image_filename, athlete_name FROM athletes WHERE year = ? AND contest_name = ?", (year, contest_name))
+        file_to_athlete = {row[0]: row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        # Find all images recursively inside the unzipped folder
+        images = [img for img in self.temp_dir.glob("**/*") if img.suffix.lower() in ['.jpg', '.jpeg', '.png']]
+        print(f"  [INFO] Found {len(images)} images in ZIP.")
         
-        for athlete_folder in athlete_folders:
-            athlete_name = athlete_folder.name
+        if not images:
+            print(f"    [SKIP] No images found inside ZIP.")
+            shutil.rmtree(self.temp_dir)
+            self.temp_dir.mkdir()
+            return
+
+        np.random.shuffle(images)
+        split_idx = int(len(images) * split_ratio)
+        
+        processed_count = 0
+        missing_mapping_count = 0
+
+        for i, img_path in enumerate(images):
+            # Find the athlete name using the filename
+            filename = img_path.name
+            athlete_name = file_to_athlete.get(filename)
+            
+            if not athlete_name:
+                missing_mapping_count += 1
+                continue
+                
             athlete_id = self._get_id(athlete_name)
             
-            images = [img for img in athlete_folder.glob("**/*") if img.suffix.lower() in ['.jpg', '.jpeg', '.png']]
-            if not images:
-                print(f"    [SKIP] No images found for athlete: {athlete_name}")
+            split = 'train' if i < split_idx else 'val'
+            
+            # YOLO Auto-labeling
+            results = self.detector(img_path, verbose=False)[0]
+            person_boxes = [box for box in results.boxes if int(box.cls) == 0]
+            
+            if not person_boxes:
                 continue
-
-            np.random.shuffle(images)
-            split_idx = int(len(images) * split_ratio)
             
-            processed_count = 0
-            for i, img_path in enumerate(images):
-                split = 'train' if i < split_idx else 'val'
-                
-                results = self.detector(img_path, verbose=False)[0]
-                person_boxes = [box for box in results.boxes if int(box.cls) == 0]
-                
-                if not person_boxes:
-                    continue
-                
-                best_box = sorted(person_boxes, key=lambda x: x.conf, reverse=True)[0]
-                xywh = best_box.xywhn[0].cpu().numpy()
-                
-                label_line = f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}\n"
-                
-                new_img_name = f"{athlete_id}_{zip_path.stem}_{img_path.name}"
-                dest_img_path = self.output_dir / split / 'images' / new_img_name
-                dest_lbl_path = self.output_dir / split / 'labels' / f"{Path(new_img_name).stem}.txt"
-                
-                shutil.copy(img_path, dest_img_path)
-                with open(dest_lbl_path, "w") as f:
-                    f.write(label_line)
-                processed_count += 1
+            best_box = sorted(person_boxes, key=lambda x: x.conf, reverse=True)[0]
+            xywh = best_box.xywhn[0].cpu().numpy()
             
-            if processed_count > 0:
-                print(f"    [DONE] Athlete '{athlete_name}': {processed_count} images.")
+            label_line = f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}\n"
+            
+            # Global unique filename: {athlete_id}_{zip_name}_{orig_name}
+            new_img_name = f"{athlete_id}_{zip_path.stem}_{filename}"
+            dest_img_path = self.output_dir / split / 'images' / new_img_name
+            dest_lbl_path = self.output_dir / split / 'labels' / f"{Path(new_img_name).stem}.txt"
+            
+            shutil.copy(img_path, dest_img_path)
+            with open(dest_lbl_path, "w") as f:
+                f.write(label_line)
+            processed_count += 1
+        
+        print(f"    [DONE] Processed {processed_count} images (skipped {missing_mapping_count} due to missing DB map).")
 
         shutil.rmtree(self.temp_dir)
         self.temp_dir.mkdir()
@@ -145,16 +162,10 @@ class IFBBJDEDatasetBuilder:
 
             if not zip_path.exists():
                 print(f"  [NOT FOUND] {zip_path}")
-                year_folder = self.source_root / s_year
-                if year_folder.exists():
-                    files = os.listdir(year_folder)
-                    print(f"    Found {len(files)} files in {s_year}/. First few: {files[:5]}")
-                else:
-                    print(f"    Year folder {s_year}/ does not exist in Drive.")
                 continue
 
             print(f"Processing: {contest_name} ({year})")
-            self.process_zip(zip_path)
+            self.process_zip(zip_path, year, contest_name)
             zip_count += 1
             
             if limit_zips and zip_count >= limit_zips:
