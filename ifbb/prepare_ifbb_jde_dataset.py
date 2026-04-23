@@ -106,7 +106,7 @@ class IFBBJDEDatasetBuilder:
         if not images: return True
 
         batch_size = 256
-        contest_out_dir = Path(f"/tmp/contest_output/{year}_{contest_name.replace(' ', '_')}")
+        contest_out_dir = Path(f"/tmp/contest_output/{year}_{self._sanitize(contest_name)}")
         img_dir = contest_out_dir / "images"
         lbl_dir = contest_out_dir / "labels"
         vis_dir = contest_out_dir / "visual_check"
@@ -182,7 +182,7 @@ class IFBBJDEDatasetBuilder:
                 skipped_contests += 1
                 continue
                 
-            zip_path = self.source_root / str(year) / f"{year}_{contest.replace(' ', '_')}.zip"
+            zip_path = self.source_root / str(year) / f"{year}_{self._sanitize(contest)}.zip"
             if zip_path.exists():
                 tqdm.write(f"\nProcessing NEW contest: {year} {contest}")
                 if self.process_contest(zip_path, year, contest):
