@@ -84,7 +84,13 @@ class IFBBJDEDatasetBuilder:
 
         batch_size = 256
         contest_out_dir = Path(f"/tmp/contest_output/{year}_{contest_name.replace(' ', '_')}")
-        contest_out_dir.mkdir(parents=True, exist_ok=True)
+        img_dir = contest_out_dir / "images"
+        lbl_dir = contest_out_dir / "labels"
+        vis_dir = contest_out_dir / "visual_check"
+        
+        img_dir.mkdir(parents=True, exist_ok=True)
+        lbl_dir.mkdir(parents=True, exist_ok=True)
+        vis_dir.mkdir(parents=True, exist_ok=True)
         
         processed_imgs = 0
         for i in range(0, len(images), batch_size):
@@ -105,9 +111,23 @@ class IFBBJDEDatasetBuilder:
                 athlete_id = self._get_id(athlete_name)
                 save_name = f"{athlete_id}_{batch[j].name}"
                 
-                shutil.copy(batch[j], contest_out_dir / save_name)
-                with open(contest_out_dir / f"{Path(save_name).stem}.txt", "w") as f:
+                shutil.copy(batch[j], img_dir / save_name)
+                with open(lbl_dir / f"{Path(save_name).stem}.txt", "w") as f:
                     f.write(f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}")
+                
+                # Save visual check for the first 10 images per contest to verify crops
+                if processed_imgs < 10:
+                    img_cv = cv2.imread(str(batch[j]))
+                    h, w, _ = img_cv.shape
+                    cx, cy, bw, bh = xywh
+                    x1 = int((cx - bw / 2) * w)
+                    y1 = int((cy - bh / 2) * h)
+                    x2 = int((cx + bw / 2) * w)
+                    y2 = int((cy + bh / 2) * h)
+                    cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(img_cv, f"ID: {athlete_id}", (x1, max(y1 - 10, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    cv2.imwrite(str(vis_dir / save_name), img_cv)
+
                 processed_imgs += 1
         
         final_zip = self.output_dir / f"{year}_{contest_name.replace(' ', '_')}.zip"
