@@ -282,6 +282,9 @@ if __name__ == "__main__":
     parser.add_argument("--years", type=str, default="2024,2025,2026")
     args = parser.parse_args()
 
-    builder = IFBBJDEDatasetBuilder(source_root=args.source, output_dir=args.output)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device for YOLO Auto-Labeling: {device.upper()}")
+
+    builder = IFBBJDEDatasetBuilder(source_root=args.source, output_dir=args.output, device=device)
     builder.prepare_directories()
     builder.run(years=args.years.split(','), limit_zips=args.limit)
