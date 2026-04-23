@@ -178,7 +178,7 @@ class IFBBJDEDatasetBuilder:
             return True
 
         # Process in batches for proper GPU utilization
-        batch_size = 512  # Pushing the 15GB VRAM to the absolute limit
+        batch_size = 256  # Pushing the 15GB VRAM to the absolute limit
         for i in range(0, len(valid_tasks), batch_size):
             batch = valid_tasks[i:i + batch_size]
             batch_paths = [str(t[0]) for t in batch]
