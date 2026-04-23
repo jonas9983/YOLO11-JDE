@@ -14,8 +14,17 @@ class IFBBJDEDatasetBuilder:
     def __init__(self, source_root, output_dir, device="cpu"):
         self.source_root = Path(source_root)
         self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.source_root / "npc_database.db"
-        self.tracking_db_path = self.output_dir.parent / "dataset_builder.db"
+        
+        # Keep tracking DB locally to prevent Google Drive FUSE crashes
+        self.local_tracking_db = Path("/content/dataset_builder.db")
+        self.drive_tracking_db = self.output_dir.parent / "dataset_builder.db"
+        
+        if self.drive_tracking_db.exists() and not self.local_tracking_db.exists():
+            shutil.copy(self.drive_tracking_db, self.local_tracking_db)
+            
+        self.tracking_db_path = self.local_tracking_db
         self.device = device
         self.temp_dir = Path("/tmp/ifbb_jde_unzip")
         self.detector = YOLO("yolo11n.pt").to(self.device)
@@ -23,7 +32,7 @@ class IFBBJDEDatasetBuilder:
         print(f"\n--- IFBB JDE DATASET BUILDER ---")
         print(f"Source Root: {self.source_root.absolute()}")
         print(f"Output Dataset: {self.output_dir.absolute()}")
-        print(f"Tracking DB: {self.tracking_db_path.absolute()}")
+        print(f"Tracking DB (Local): {self.tracking_db_path.absolute()}")
         print(f"Device: {self.device.upper()}")
         print(f"--------------------------------\n")
         
@@ -31,6 +40,13 @@ class IFBBJDEDatasetBuilder:
         self.next_id = 0
         self._init_tracking_db()
         self._load_id_map()
+
+    def _sync_db_to_drive(self):
+        """Safely copy the local DB to Drive to backup progress."""
+        try:
+            shutil.copy(self.local_tracking_db, self.drive_tracking_db)
+        except Exception as e:
+            print(f"  [WARNING] Failed to sync DB to Drive: {e}")
 
     def _init_tracking_db(self):
         self.tracking_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,11 +85,17 @@ class IFBBJDEDatasetBuilder:
         if self.temp_dir.exists(): shutil.rmtree(self.temp_dir)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         
+        # Copy to local temp storage to prevent Drive IO crashes
+        local_zip_path = Path("/tmp/current_contest.zip")
         try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            print(f"  [COPY] Copying {zip_path.name} from Drive to Colab local storage...")
+            shutil.copy(zip_path, local_zip_path)
+            
+            with zipfile.ZipFile(local_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.temp_dir)
+            local_zip_path.unlink() # Cleanup
         except Exception as e:
-            print(f"  [ERROR] Failed to unzip {zip_path.name}: {e}")
+            print(f"  [ERROR] Failed to extract {zip_path.name}: {e}")
             return False
         
         conn = sqlite3.connect(self.db_path)
@@ -167,6 +189,7 @@ class IFBBJDEDatasetBuilder:
                     conn = sqlite3.connect(self.tracking_db_path)
                     conn.execute("INSERT INTO processed_contests VALUES (?, ?)", (year, contest))
                     conn.commit(); conn.close()
+                    self._sync_db_to_drive()
                     processed_contests += 1
             else:
                 tqdm.write(f"\n  [WARNING] Zip not found for {year} {contest} at {zip_path}")
