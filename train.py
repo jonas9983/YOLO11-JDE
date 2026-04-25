@@ -32,7 +32,7 @@ def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, dev
     model.add_callback("on_val_end", partial(mot_eval, period=max(1, epochs // 5)))
 
     model.train(
-        project=project_dir, 
+        project='ifbb_jde', # Fixed name for WandB/Loggers
         name=name,
         data=data_yaml,
         epochs=epochs,
