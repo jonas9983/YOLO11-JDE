@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import partial
 from ultralytics.utils import SETTINGS
 
-def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, device=0, use_mlflow=True):
+def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, device=0, amp=True, use_mlflow=True):
     # Enable MLflow and/or Comet
     if use_mlflow:
         try:
@@ -39,7 +39,7 @@ def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, dev
         batch=batch,
         device=device, 
         imgsz=imgsz,
-        amp=False,          # Disable AMP check to avoid missing assets error
+        amp=amp,            # Use the parameter
         close_mosaic=0,     # Required for JDE
         patience=25,
         tracker='jdetracker.yaml',
@@ -58,6 +58,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--device", type=str, default="0", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    parser.add_argument("--amp", action="store_true", help="Use Automatic Mixed Precision (AMP)")
     parser.add_argument("--no_mlflow", action="store_true", help="Disable MLflow")
     
     args = parser.parse_args()
@@ -70,5 +71,6 @@ if __name__ == "__main__":
         batch=args.batch,
         imgsz=args.imgsz,
         device=args.device,
+        amp=args.amp,
         use_mlflow=not args.no_mlflow
     )
