@@ -171,3 +171,5 @@ pnnx*
 calibration_*.npy
 /reid_xps/
 /tracker/evaluation/outputs/
+
+*.zip
