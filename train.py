@@ -39,6 +39,7 @@ def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, dev
         batch=batch,
         device=device, 
         imgsz=imgsz,
+        amp=False,          # Disable AMP check to avoid missing assets error
         close_mosaic=0,     # Required for JDE
         patience=25,
         tracker='jdetracker.yaml',
