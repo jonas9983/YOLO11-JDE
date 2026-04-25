@@ -78,7 +78,13 @@ import torch
 device = "0" if torch.cuda.is_available() else "cpu"
 print(f"\n--- STARTING TRAINING ON {device.upper()} (RESUME={RESUME_TRAINING}) ---")
 
-resume_flag = "--resume" if RESUME_TRAINING else ""
+# RECOVERY CONFIG: Change RESUME_WEIGHTS to a specific path if you want to recover from NaNs
+RESUME_WEIGHTS = "ifbb_jde/prague_pro_final/weights/best.pt" # Use best.pt to recover from NaN in last.pt
+
+if RESUME_TRAINING:
+    resume_cmd = f"--resume {RESUME_WEIGHTS}"
+else:
+    resume_cmd = ""
 
 !python train.py --data datasets/ifbb_jde/ifbb_jde.yaml \
                 --project ifbb_jde \
@@ -87,4 +93,4 @@ resume_flag = "--resume" if RESUME_TRAINING else ""
                 --batch 4 \
                 --imgsz 1280 \
                 --device {device} \
-                --amp {resume_flag}
+                {resume_cmd}

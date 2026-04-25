@@ -26,15 +26,18 @@ def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, dev
     from tracker.evaluation.mot_callback import mot_eval
 
     # Initialize model with JDE task
-    # When resuming, load from project_dir/name/weights/last.pt instead of base model
     if resume:
-        last_weights = os.path.join('ifbb_jde', name, 'weights', 'last.pt')
-        if os.path.exists(last_weights):
-            print(f"Resuming from: {last_weights}")
-            model = YOLO(last_weights, task='jde')
+        # If resume is a string, use it as the path. Otherwise, use default last.pt
+        resume_path = resume if isinstance(resume, str) and os.path.exists(resume) else os.path.join('ifbb_jde', name, 'weights', 'last.pt')
+        
+        if os.path.exists(resume_path):
+            print(f"Resuming from: {resume_path}")
+            model = YOLO(resume_path, task='jde')
+            resume = True # Set to True for the model.train call
         else:
-            print(f"Warning: {last_weights} not found, starting from scratch.")
+            print(f"Warning: Resume path {resume_path} not found, starting from scratch.")
             model = YOLO('yolo11s-jde.yaml', task='jde').load('yolo11s.pt')
+            resume = False
     else:
         model = YOLO('yolo11s-jde.yaml', task='jde').load('yolo11s.pt')
 
@@ -70,10 +73,17 @@ if __name__ == "__main__":
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--device", type=str, default="0", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
     parser.add_argument("--amp", action="store_true", help="Use Automatic Mixed Precision (AMP)")
-    parser.add_argument("--resume", action="store_true", help="Resume training from last.pt")
+    parser.add_argument("--resume", type=str, nargs='?', const='True', default=None, help="Resume training from last.pt or specific path")
     parser.add_argument("--no_mlflow", action="store_true", help="Disable MLflow")
     
     args = parser.parse_args()
+    
+    # Handle resume logic: None -> False, 'True' -> True, 'path/to/weights' -> 'path/to/weights'
+    resume_val = args.resume
+    if resume_val == 'True':
+        resume_val = True
+    elif resume_val is None:
+        resume_val = False
     
     train_jde(
         data_yaml=args.data,
@@ -84,6 +94,6 @@ if __name__ == "__main__":
         imgsz=args.imgsz,
         device=args.device,
         amp=args.amp,
-        resume=args.resume,
+        resume=resume_val,
         use_mlflow=not args.no_mlflow
     )
