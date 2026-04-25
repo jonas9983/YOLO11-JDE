@@ -25,3 +25,5 @@ albumentations>=1.4.6
 pycocotools>=2.0.7
 pytorch-metric-learning
 lapx
+motmetrics
+gitpython
