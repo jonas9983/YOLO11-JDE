@@ -14,7 +14,7 @@ DRIVE_LINK = "https://drive.google.com/file/d/1IRZ_7-EbWuwfzSgcjXHV09srJ_eqClLV/
 RESUME_TRAINING = False  # SET TO FALSE TO START FRESH AFTER THE NAN ISSUE
 
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
-BRANCH = "feat/ifbb-jde-training"
+BRANCH = "development"
 
 # --- 1. REPO SETUP ---
 %cd /kaggle/working
