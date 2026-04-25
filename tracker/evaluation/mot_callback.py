@@ -26,7 +26,20 @@ def mot_eval(validator, period=1):
 
     # Define sequences paths to evaluate
     dataset_root = os.path.join('./tracker/evaluation/TrackEval/data/gt/mot_challenge/', dataset_name)
-    seq_names = [d for d in os.listdir(dataset_root) if os.path.isdir(os.path.join(dataset_root, d))]
+    
+    if not os.path.exists(dataset_root):
+        print(f"WARNING: MOT evaluation skipped. Directory not found: {dataset_root}")
+        return
+        
+    if not os.path.exists(seqmap_file):
+        print(f"WARNING: MOT evaluation skipped. Seqmap file not found: {seqmap_file}")
+        return
+
+    try:
+        seq_names = [d for d in os.listdir(dataset_root) if os.path.isdir(os.path.join(dataset_root, d))]
+    except Exception as e:
+        print(f"WARNING: MOT evaluation skipped. Error reading {dataset_root}: {e}")
+        return
 
     # Define output folder
     output_folder = os.path.join(str(validator.save_dir), dataset_name, 'data')
