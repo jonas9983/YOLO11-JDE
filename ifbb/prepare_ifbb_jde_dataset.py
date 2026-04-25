@@ -17,8 +17,9 @@ class IFBBJDEDatasetBuilder:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.source_root / "npc_database.db"
         
-        # Keep tracking DB locally to prevent Google Drive FUSE crashes
-        self.local_tracking_db = Path("/content/dataset_builder.db")
+        # Use /tmp or current dir depending on environment
+        base_temp = Path("/content") if Path("/content").exists() else Path("/tmp")
+        self.local_tracking_db = base_temp / "dataset_builder.db"
         self.drive_tracking_db = self.output_dir.parent / "dataset_builder.db"
         
         if self.drive_tracking_db.exists() and not self.local_tracking_db.exists():
@@ -26,7 +27,7 @@ class IFBBJDEDatasetBuilder:
             
         self.tracking_db_path = self.local_tracking_db
         self.device = device
-        self.temp_dir = Path("/tmp/ifbb_jde_unzip")
+        self.temp_dir = base_temp / "ifbb_jde_unzip"
         self.detector = YOLO("yolo11n.pt").to(self.device)
         
         print(f"\n--- IFBB JDE DATASET BUILDER ---")

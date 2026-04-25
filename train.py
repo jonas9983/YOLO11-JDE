@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import partial
 from ultralytics.utils import SETTINGS
 
-def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, use_mlflow=True):
+def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, device=0, use_mlflow=True):
     # Enable MLflow and/or Comet
     if use_mlflow:
         try:
@@ -37,7 +37,7 @@ def train_jde(data_yaml, project_dir, name, epochs=30, batch=32, imgsz=1280, use
         data=data_yaml,
         epochs=epochs,
         batch=batch,
-        device=0, 
+        device=device, 
         imgsz=imgsz,
         close_mosaic=0,     # Required for JDE
         patience=25,
@@ -56,6 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--imgsz", type=int, default=1280)
+    parser.add_argument("--device", type=str, default="0", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
     parser.add_argument("--no_mlflow", action="store_true", help="Disable MLflow")
     
     args = parser.parse_args()
@@ -67,5 +68,6 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch=args.batch,
         imgsz=args.imgsz,
+        device=args.device,
         use_mlflow=not args.no_mlflow
     )
