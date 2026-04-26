@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V4 - GPU & LIMITS) ===
+# === COLAB TRACKING SCRIPT (V6 - FRAME RANGE) ===
 # 1. Select 'T4 GPU' Accelerator
 # 2. Mount your Google Drive
 # 3. Paste, update PATHS, and run!
@@ -14,7 +14,12 @@ if not os.path.exists("/content/drive"):
 WEIGHTS_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/results/2025_EVLS_PRAGUE_PRO/weights_results.zip"
 TEST_VIDEO = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/Videos/2025_EVLS_Prague/OPEN BODYBUILDING - EVLS PRAG PRO 2025 (FINALE IN 4K).mp4"
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
-BRANCH = "feat/multi-gpu-training" # Updated to your current branch!
+BRANCH = "feat/multi-gpu-training" 
+
+# --- NEW: FRAME RANGE SELECTION ---
+# Example: 1800 to 2400 (roughly 1 minute in at 30fps)
+START_FRAME = 1800 
+END_FRAME = 2400   
 
 # --- 3. REPO SETUP ---
 %cd /content
@@ -27,6 +32,7 @@ if not os.path.exists("YOLO11-JDE"):
 os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 
 # --- 4. DEPENDENCIES ---
+print("Installing dependencies...")
 !pip install -r requirements.txt --quiet
 !pip install --upgrade gdown mlflow --quiet
 
@@ -34,27 +40,33 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 print("Unzipping weights...")
 !mkdir -p /content/test_weights
 !unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/
-
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
 
-# --- 6. RUN TRACKING ---
+# --- 6. CODEC FIX & SEGMENT EXTRACTION ---
+print(f"\n--- EXTRACTING SEGMENT (Frames {START_FRAME} to {END_FRAME}) ---")
+# Use ffmpeg to extract and convert to H.264 simultaneously
+# We calculate start time (ss) based on 60fps (typical for 4K). 
+# If your video is 30fps, adjust the division.
+FPS = 60 
+START_SEC = START_FRAME / FPS
+DURATION_SEC = (END_FRAME - START_FRAME) / FPS
+
+!ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
+
+# --- 7. RUN TRACKING ---
 print("\n--- STARTING TRACKING ---")
-# Added --device 0 for GPU and --frames 500 for a quick test!
 !python track_bodybuilders.py --model "{MODEL_PATH}" \
-                             --source "{TEST_VIDEO}" \
+                             --source "test_segment.mp4" \
                              --output "tracked_result.mp4" \
                              --conf 0.3 \
                              --imgsz 1280 \
-                             --device 0 \
-                             --frames 500
+                             --device 0
 
-# --- 7. SAVE OUTPUT BACK TO DRIVE ---
+# --- 8. SAVE OUTPUT BACK TO DRIVE ---
 print("\n--- SAVING RESULT TO DRIVE ---")
-# Ensure the directory exists in Drive
 !mkdir -p "/content/drive/MyDrive/YOLO11_Results/"
-
 if os.path.exists("tracked_result.mp4"):
     !cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_test_result.mp4"
     print(f"Success! Video saved to Drive: YOLO11_Results/tracking_test_result.mp4")
 else:
-    print("Error: tracked_result.mp4 was not created. Check for errors in the tracking logs above.")
+    print("Error: tracked_result.mp4 was not created.")

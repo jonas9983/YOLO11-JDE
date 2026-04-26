@@ -10,7 +10,7 @@ def extract_id(link):
     match = re.search(r"(?:/d/|id=)([a-zA-Z0-9_-]+)", link)
     return match.group(1) if match else link
 
-def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, frames=None):
+def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None):
     # 1. Handle Source (Drive vs Local)
     is_drive = "drive.google.com" in source or len(source) == 33 # Likely an ID
     
@@ -35,21 +35,31 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps    = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    if frames:
-        total_frames = min(total_frames, frames)
+    # Handle Frame Range
+    if start_frame > 0:
+        print(f"Seeking to frame {start_frame}...")
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    
+    if end_frame is None or end_frame > total_video_frames:
+        end_frame = total_video_frames
+    
+    num_to_process = end_frame - start_frame
+    if num_to_process <= 0:
+        print(f"[ERROR] Invalid range: start={start_frame}, end={end_frame}")
+        return
 
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Changed to lowercase 'mp4v' for better compatibility
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    print(f"Tracking bodybuilders in {total_frames} frames...")
+    print(f"Tracking bodybuilders from frame {start_frame} to {end_frame} ({num_to_process} frames)...")
     
     count = 0
-    with tqdm(total=total_frames) as pbar:
+    with tqdm(total=num_to_process) as pbar:
         while cap.isOpened():
             success, frame = cap.read()
-            if not success or (frames and count >= frames): 
+            if not success or (count >= num_to_process): 
                 break
 
             # Track using the JDE embeddings
@@ -80,7 +90,8 @@ if __name__ == "__main__":
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--device", type=str, default="0", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
-    parser.add_argument("--frames", type=int, default=None, help="Limit number of frames to process")
+    parser.add_argument("--start-frame", type=int, default=0, help="Frame to start from")
+    parser.add_argument("--end-frame", type=int, default=None, help="Frame to end at")
     
     args = parser.parse_args()
-    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.frames)
+    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame)
