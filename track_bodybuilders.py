@@ -10,7 +10,7 @@ def extract_id(link):
     match = re.search(r"(?:/d/|id=)([a-zA-Z0-9_-]+)", link)
     return match.group(1) if match else link
 
-def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25):
+def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, frames=None):
     # 1. Handle Source (Drive vs Local)
     is_drive = "drive.google.com" in source or len(source) == 33 # Likely an ID
     
@@ -27,7 +27,7 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25):
             return
 
     # 2. Load Model
-    print(f"Loading model: {model_path}")
+    print(f"Loading model: {model_path} on device: {device}")
     model = YOLO(model_path, task="jde")
 
     # 3. Process Video
@@ -36,16 +36,21 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps    = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    if frames:
+        total_frames = min(total_frames, frames)
 
-    fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Changed to lowercase 'mp4v' for better compatibility
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     print(f"Tracking bodybuilders in {total_frames} frames...")
     
+    count = 0
     with tqdm(total=total_frames) as pbar:
         while cap.isOpened():
             success, frame = cap.read()
-            if not success: break
+            if not success or (frames and count >= frames): 
+                break
 
             # Track using the JDE embeddings
             results = model.track(
@@ -54,12 +59,14 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25):
                 conf=conf, 
                 persist=True, 
                 tracker="jdetracker.yaml", 
+                device=device,
                 verbose=False
             )
             
             annotated_frame = results[0].plot()
             out.write(annotated_frame)
             pbar.update(1)
+            count += 1
 
     cap.release()
     out.release()
@@ -72,6 +79,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="tracked_result.mp4")
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--device", type=str, default="0", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    parser.add_argument("--frames", type=int, default=None, help="Limit number of frames to process")
     
     args = parser.parse_args()
-    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf)
+    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.frames)
