@@ -7,7 +7,7 @@ from tqdm import tqdm
 from ultralytics import YOLO
 import cv2
 
-def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None):
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -16,6 +16,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Device: {device}")
     print(f"Dataset Dir: {dataset_dir}")
     print(f"DB Path: {db_path}")
+    print(f"Contest Filter: {contest_name if contest_name else 'ALL'}")
     
     if not os.path.exists(db_path):
         print(f"ERROR: Database file not found at {db_path}")
@@ -54,7 +55,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Total images found: {len(images)}")
     
     # Process images and group by athlete ID (filename starts with ID_)
-    for img_path in tqdm(images[:1000]): # Limit for speed
+    for img_path in tqdm(images):
         filename = img_path.name
         athlete_id = filename.split('_')[0]
         
@@ -62,6 +63,11 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
             continue
             
         athlete_name = id_to_name[athlete_id]
+
+        # If we have a contest filter, only use images from that contest
+        # We check if the image path contains the contest name (e.g., inside a folder named after the contest)
+        if contest_name and contest_name.upper() not in img_path.as_posix().upper():
+            continue
         
         # Run inference to get embedding
         results = model.predict(img_path, imgsz=1280, device=device, verbose=False)
@@ -90,6 +96,7 @@ if __name__ == "__main__":
     parser.add_argument("--db", type=str, required=True)
     parser.add_argument("--output", type=str, default="athlete_gallery.pt")
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--contest", type=str, default=None, help="Filter images by contest name in path")
     args = parser.parse_args()
     
-    create_gallery(args.model, args.dataset, args.db, args.output, args.device)
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest)
