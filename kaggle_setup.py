@@ -1,17 +1,18 @@
-# === KAGGLE SETUP SCRIPT (V19 - DIRECT DRIVE BATCH) ===
+# === KAGGLE SETUP SCRIPT (V20 - DIRECT FOLDER DOWNLOAD) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
 
 import os
+import re
 import random
 import shutil
 from pathlib import Path
 
 # --- 1. CONFIGURATION ---
-# We assume you have mounted your Google Drive in Kaggle using the left sidebar menu!
-# This path points directly to the folder where your `prepare_ifbb_jde_dataset.py` saves the zips.
-DRIVE_DATASET_FOLDER = "/kaggle/input/YOUR_DRIVE_MOUNT_NAME/personal/Bodybuilding_Model_Training/ifbb_jde_dataset"
+# Right-click your "ifbb_jde_dataset" folder in Google Drive -> Share -> Copy Link
+# Paste that folder link below:
+DRIVE_FOLDER_LINK = "PASTE_YOUR_FOLDER_LINK_HERE" 
 
 RESUME_TRAINING = False 
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
@@ -30,7 +31,7 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 # --- 3. DEPENDENCIES ---
 print("Installing dependencies...")
 !pip install -r requirements.txt --quiet
-!pip install --upgrade mlflow --quiet
+!pip install --upgrade gdown mlflow --quiet
 !pip uninstall ray -y --quiet
 !pip install -e tracker/evaluation/TrackEval --quiet
 
@@ -42,23 +43,21 @@ if not os.path.exists("ultralytics/assets/bus.jpg"):
 
 os.environ["WANDB_MODE"] = "disabled"
 
-# --- 4. DIRECT DATA EXTRACTION ---
+# --- 4. MULTI-ZIP FOLDER DOWNLOAD & EXTRACTION ---
 if not os.path.exists("datasets/ifbb_jde"):
-    print(f"Reading contest zips directly from: {DRIVE_DATASET_FOLDER}")
-    
-    if not os.path.exists(DRIVE_DATASET_FOLDER):
-        print(f"\n[CRITICAL ERROR] Could not find {DRIVE_DATASET_FOLDER}!")
-        print("Did you attach your Google Drive to this Kaggle Notebook?")
-        import sys; sys.exit(1)
-
+    print("Downloading entire contest folder from Google Drive...")
+    !mkdir -p /tmp/jde_downloads
     !mkdir -p /tmp/jde_raw
     
-    # Find all the individual contest zips in your Drive folder
-    contest_zips = list(Path(DRIVE_DATASET_FOLDER).glob("*.zip"))
-    print(f"Found {len(contest_zips)} contest zips. Unzipping...")
+    # Use gdown to download the entire folder!
+    # gdown automatically handles the folder link if we pass --folder
+    !gdown --folder "{DRIVE_FOLDER_LINK}" -O /tmp/jde_downloads
+    
+    # Find all the downloaded zips
+    contest_zips = list(Path("/tmp/jde_downloads").rglob("*.zip"))
+    print(f"Found {len(contest_zips)} contest zips. Unzipping all of them...")
     
     for z in contest_zips:
-        # Extract them all into the raw temp folder
         !unzip -qo "{str(z)}" -d /tmp/jde_raw/
         
     print("Splitting Data into Train/Val...")
@@ -68,7 +67,6 @@ if not os.path.exists("datasets/ifbb_jde"):
     all_images = list(Path("/tmp/jde_raw").rglob("*.jpg")) + list(Path("/tmp/jde_raw").rglob("*.png"))
     random.shuffle(all_images)
     
-    # 10% validation is plenty when you have tens of thousands of images
     val_count = int(len(all_images) * 0.10) 
     
     print(f"Moving {len(all_images)} total images ({val_count} to Validation)...")
@@ -83,11 +81,11 @@ if not os.path.exists("datasets/ifbb_jde"):
             shutil.copy(img_path, f"datasets/ifbb_jde/{split}/images/{img_path.name}")
             shutil.copy(label_path, f"datasets/ifbb_jde/{split}/labels/{label_path.name}")
             
-    # Create the config file
     data_yaml = f"path: /kaggle/working/YOLO11-JDE/datasets/ifbb_jde\ntrain: train/images\nval: val/images\nnc: 1\nnames: ['person']\n"
     with open("datasets/ifbb_jde/ifbb_jde.yaml", "w") as f: f.write(data_yaml)
 
-    # Clean up temp files to save disk space
+    # Clean up to save massive disk space on Kaggle
+    shutil.rmtree("/tmp/jde_downloads", ignore_errors=True)
     shutil.rmtree("/tmp/jde_raw", ignore_errors=True)
 
 # --- 5. START TRAINING ---
@@ -95,7 +93,7 @@ import torch
 num_gpus = torch.cuda.device_count()
 if num_gpus > 1:
     device = ",".join([str(i) for i in range(num_gpus)])
-    batch_size = 16 * num_gpus # 32 total on dual GPUs
+    batch_size = 16 * num_gpus 
 elif num_gpus == 1:
     device = "0"
     batch_size = 16
@@ -108,7 +106,7 @@ print(f"\n--- STARTING TRAINING ON {device.upper()} (GPUs: {num_gpus}) ---")
 RESUME_WEIGHTS = "ifbb_jde/bodybuilding_model/weights/last.pt" 
 if RESUME_TRAINING:
     resume_cmd = f"--resume {RESUME_WEIGHTS}"
-    amp_cmd = "" # Disable AMP on resume to prevent NaN gradients
+    amp_cmd = "" 
 else:
     resume_cmd = ""
     amp_cmd = "--amp" 
