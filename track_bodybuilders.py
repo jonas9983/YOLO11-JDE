@@ -91,18 +91,23 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                     embeds = result.embeds.cpu().numpy()
                     
                     for i, track_id in enumerate(ids):
-                        if track_id not in track_to_athlete:
-                            # Match current embedding against gallery
-                            best_name = "Unknown"
-                            best_sim = 0.6 # Threshold
-                            
-                            for athlete_name, ref_embed in gallery.items():
-                                sim = cosine_similarity(embeds[i], ref_embed)
-                                if sim > best_sim:
-                                    best_sim = sim
-                                    best_name = athlete_name
-                            
-                            track_to_athlete[track_id] = f"{best_name} (ID:{track_id})"
+                        # Use a threshold for similarity
+                        threshold = 0.55
+                        
+                        # Compare current embedding to gallery
+                        best_name = "Unknown"
+                        best_sim = threshold
+                        
+                        for athlete_name, ref_embed in gallery.items():
+                            sim = cosine_similarity(embeds[i], ref_embed)
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_name = athlete_name
+                        
+                        # Rolling Identity: Update the track's name based on current best guess
+                        # This allows the name to "fix itself" if the athlete was initially 
+                        # in a weird pose that looked like someone else.
+                        track_to_athlete[track_id] = f"{best_name} (ID:{track_id})"
                 
                 # Manual Annotation to show Athlete Names
                 annotated_frame = frame.copy()
