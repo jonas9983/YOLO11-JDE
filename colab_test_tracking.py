@@ -1,8 +1,4 @@
-# === COLAB TRACKING SCRIPT (V9 - ROBUST & NAMES) ===
-# 1. Select 'T4 GPU' Accelerator
-# 2. Mount your Google Drive
-# 3. Paste, update PATHS, and run!
-
+# === COLAB TRACKING SCRIPT (V9.1 - DEBUG PATHS) ===
 import os
 import sys
 from google.colab import drive
@@ -17,9 +13,9 @@ TEST_VIDEO = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/Videos/2025_E
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
 BRANCH = "feat/multi-gpu-training" 
 
-# THE DB FILE (not a zip!)
+# THE DB FILE - DOUBLE CHECK THIS FILENAME!
 DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/database_builder.db"
-# THE TRAINING IMAGES (needed to build the gallery)
+# THE TRAINING IMAGES
 DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset.zip" 
 
 # --- FRAME RANGE SELECTION ---
@@ -33,11 +29,9 @@ if not os.path.exists("YOLO11-JDE"):
 %cd YOLO11-JDE
 !git checkout {BRANCH}
 !git pull origin {BRANCH}
-
 os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 
 # --- 4. DEPENDENCIES ---
-print("Installing dependencies...")
 !pip install -r requirements.txt --quiet
 !pip install --upgrade gdown mlflow pytorch-metric-learning --quiet
 
@@ -47,14 +41,25 @@ def run_step(cmd, msg):
     ret = os.system(cmd)
     if ret != 0:
         print(f"\n[ERROR] Step failed: {msg}")
+        # DEBUG: List files to help the user find the right path
+        if "Database" in msg:
+            folder = os.path.dirname(DB_FILE)
+            print(f"I couldn't find the DB. Here are the files in {folder}:")
+            os.system(f"ls -l '{folder}'")
         sys.exit(1)
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
 
-# Fix: Use CP for the .db file, not unzip
+# Verification before copy
+if not os.path.exists(DB_FILE):
+    print(f"\n[ERROR] DB_FILE not found at: {DB_FILE}")
+    folder = os.path.dirname(DB_FILE)
+    print(f"Contents of {folder}:")
+    os.system(f"ls -F '{folder}'")
+    sys.exit(1)
+
 run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset/ifbb_jde/dataset_builder.db', "Copying Database")
 
-# Fix: We still need training images to extract gallery embeddings
 if not os.path.exists("/content/dataset/ifbb_jde/train"):
     run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/', "Unzipping Training Images")
 
