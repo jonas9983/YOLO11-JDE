@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V9.1 - DEBUG PATHS) ===
+# === COLAB TRACKING SCRIPT (V9.2 - DEBUG UNZIP) ===
 import os
 import sys
 from google.colab import drive
@@ -16,11 +16,11 @@ BRANCH = "feat/multi-gpu-training"
 # THE DB FILE - DOUBLE CHECK THIS FILENAME!
 DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/dataset_builder.db"
 # THE TRAINING IMAGES
-DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset.zip" 
+DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
 
 # --- FRAME RANGE SELECTION ---
 START_FRAME = 2000 
-END_FRAME = 15000   
+END_FRAME = 15000
 
 # --- 3. REPO SETUP ---
 %cd /content
@@ -46,6 +46,10 @@ def run_step(cmd, msg):
             folder = os.path.dirname(DB_FILE)
             print(f"I couldn't find the DB. Here are the files in {folder}:")
             os.system(f"ls -l '{folder}'")
+        elif "Training Images" in msg:
+            folder = os.path.dirname(DATASET_IMAGES_ZIP)
+            print(f"I couldn't unzip the images. Here are the files in {folder}:")
+            os.system(f"ls -l '{folder}'")
         sys.exit(1)
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
@@ -60,8 +64,19 @@ if not os.path.exists(DB_FILE):
 
 run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset/ifbb_jde/dataset_builder.db', "Copying Database")
 
+# Verification before unzip
+if not os.path.exists(DATASET_IMAGES_ZIP):
+    print(f"\n[ERROR] DATASET_IMAGES_ZIP not found at: {DATASET_IMAGES_ZIP}")
+    folder = os.path.dirname(DATASET_IMAGES_ZIP)
+    print(f"Contents of {folder}:")
+    os.system(f"ls -F '{folder}'")
+    sys.exit(1)
+
 if not os.path.exists("/content/dataset/ifbb_jde/train"):
-    run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/', "Unzipping Training Images")
+    # Fix: Changed extraction path to match gallery creation expectations
+    # Assuming the zip contains the 'train' folder directly or images inside a folder.
+    # The gallery script expects images in: /content/dataset/ifbb_jde/train/images/
+    run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images")
 
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
 
