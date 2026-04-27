@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V16 - CONTEST FILTERING) ===
+# === COLAB TRACKING SCRIPT (V16.1 - FIXED PATHS) ===
 import os
 import sys
 import subprocess
@@ -17,15 +17,15 @@ BRANCH = "feat/multi-gpu-training"
 
 # PATHS IN DRIVE
 DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/dataset_builder.db"
-DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
+# Corrected path to match user's Drive structure
+DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
 
 # !!! CONTEST FILTERING !!!
-# This limits the search to only these athletes. 
-# Set to None if you want to search the entire database.
-CONTEST_FILTER = "2025_IFBB_EVLS_Prague_Pro" 
+# limits the search to only these athletes to prevent gender-mismatch.
+CONTEST_FILTER = "Prague_Pro" 
 
 # Set this to True if you want to rebuild the gallery from scratch
-FORCE_REBUILD_GALLERY = False
+FORCE_REBUILD_GALLERY = True
 
 # --- FRAME RANGE SELECTION ---
 START_FRAME = 2000 
@@ -87,7 +87,6 @@ if not os.path.exists(LOCAL_VIDEO):
     run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 {LOCAL_VIDEO}', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
-# Using threshold 0.25 to see more names
 run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "{GALLERY_FILE}" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
