@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V9.2 - DEBUG UNZIP) ===
+# === COLAB TRACKING SCRIPT (V9.3 - DEBUG GALLERY) ===
 import os
 import sys
 from google.colab import drive
@@ -50,6 +50,10 @@ def run_step(cmd, msg):
             folder = os.path.dirname(DATASET_IMAGES_ZIP)
             print(f"I couldn't unzip the images. Here are the files in {folder}:")
             os.system(f"ls -l '{folder}'")
+        elif "Creating Athlete Gallery" in msg:
+            print("\n[DEBUG] The gallery script failed. Let's see what the dataset folder looks like:")
+            os.system("ls -R /content/dataset/ifbb_jde | head -n 30") # Show structure
+            print("...")
         sys.exit(1)
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
@@ -73,9 +77,6 @@ if not os.path.exists(DATASET_IMAGES_ZIP):
     sys.exit(1)
 
 if not os.path.exists("/content/dataset/ifbb_jde/train"):
-    # Fix: Changed extraction path to match gallery creation expectations
-    # Assuming the zip contains the 'train' folder directly or images inside a folder.
-    # The gallery script expects images in: /content/dataset/ifbb_jde/train/images/
     run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images")
 
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
