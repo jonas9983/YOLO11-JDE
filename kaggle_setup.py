@@ -7,6 +7,8 @@ import os
 import re
 import random
 import shutil
+import hashlib
+from collections import defaultdict
 from pathlib import Path
 
 # --- 1. CONFIGURATION ---
@@ -15,7 +17,7 @@ from pathlib import Path
 KAGGLE_DATASET_FOLDER = None 
 
 # OR, if using Google Drive, paste the link here (make sure it's "Anyone with the link"):
-DRIVE_LINK = "PASTE_YOUR_LINK_HERE" 
+DRIVE_LINK = "https://drive.google.com/drive/folders/1tvndv5V1O2RI_04-BhPIWdIpa06nd_gP?usp=sharing" 
 
 RESUME_TRAINING = False 
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
@@ -103,12 +105,25 @@ if not data_ready:
         import sys; sys.exit(1)
 
     random.shuffle(all_images)
-    val_count = int(len(all_images) * 0.10) 
     
-    print(f"Moving {len(all_images)} total images ({val_count} to Validation)...")
-    valid_pairs = 0
-    for i, img_path in enumerate(all_images):
-        split = "val" if i < val_count else "train"
+    seen_hashes = set()
+    athlete_images = defaultdict(list)
+    duplicates_skipped = 0
+
+    print("Hashing images and grouping by athlete ID...")
+    for img_path in all_images:
+        # 1. Hash-based de-duplication
+        with open(img_path, "rb") as f:
+            file_hash = hashlib.md5(f.read()).hexdigest()
+        
+        if file_hash in seen_hashes:
+            duplicates_skipped += 1
+            continue
+        seen_hashes.add(file_hash)
+
+        # 2. Extract athlete_id from filename
+        # Expected format: {athlete_id}_{original_filename}.jpg
+        athlete_id = img_path.name.split('_')[0]
         
         # Check potential label locations
         label_name = f"{img_path.stem}.txt"
@@ -125,45 +140,79 @@ if not data_ready:
                 break
                 
         if label_path:
-            shutil.copy(img_path, f"datasets/ifbb_jde/{split}/images/{img_path.name}")
-            shutil.copy(label_path, f"datasets/ifbb_jde/{split}/labels/{label_path.name}")
+            athlete_images[athlete_id].append((img_path, label_path))
+
+    unique_ids = list(athlete_images.keys())
+    random.shuffle(unique_ids)
+    
+    # Identity-aware splitting: roughly 10% of athletes go to validation
+    val_id_count = max(1, int(len(unique_ids) * 0.10))
+    val_ids = set(unique_ids[:val_id_count])
+    
+    print(f"Skipped {duplicates_skipped} exact duplicate images.")
+    print(f"Found {len(unique_ids)} unique athletes.")
+    print(f"Assigning {val_id_count} athletes to Validation...")
+    
+    # Create a mapping from athlete_id string to a unique integer
+    athlete_to_idx = {athlete_name: i for i, athlete_name in enumerate(unique_ids)}
+    
+    valid_pairs = 0
+    for athlete_id, pairs in athlete_images.items():
+        split = "val" if athlete_id in val_ids else "train"
+        idx = athlete_to_idx[athlete_id]
+        
+        for img_path, label_path in pairs:
+            dest_img = f"datasets/ifbb_jde/{split}/images/{img_path.name}"
+            shutil.copy(img_path, dest_img)
+            
+            # Read, inject ID, and save
+            with open(label_path, "r") as f:
+                lines = f.readlines()
+            
+            new_lines = []
+            for line in lines:
+                parts = line.strip().split()
+                if len(parts) >= 5:
+                    # class x y w h -> class x y w h identity_id
+                    new_lines.append(f"{parts[0]} {parts[1]} {parts[2]} {parts[3]} {parts[4]} {idx}\n")
+            
+            dest_label = f"datasets/ifbb_jde/{split}/labels/{label_path.name}"
+            with open(dest_label, "w") as f:
+                f.writelines(new_lines)
             valid_pairs += 1
             
-    print(f"Successfully processed {valid_pairs} image/label pairs.")
+    print(f"Successfully processed {valid_pairs} image/label pairs with JDE IDs.")
     
     if valid_pairs == 0:
-        print("[CRITICAL ERROR] Found images, but no matching .txt label files!")
+        print("[CRITICAL ERROR] No valid image/label pairs!")
         import sys; sys.exit(1)
             
     data_yaml = f"path: /kaggle/working/YOLO11-JDE/datasets/ifbb_jde\ntrain: train/images\nval: val/images\nnc: 1\nnames: ['person']\n"
     with open("datasets/ifbb_jde/ifbb_jde.yaml", "w") as f: f.write(data_yaml)
 
-    # Clean up to save disk space
     shutil.rmtree("/tmp/jde_downloads", ignore_errors=True)
     shutil.rmtree("/tmp/jde_raw", ignore_errors=True)
 
 # --- 5. START TRAINING ---
 import torch
+import wandb
+from kaggle_secrets import UserSecretsClient
+
+# Setup WandB
+try:
+    user_secrets = UserSecretsClient()
+    wandb_key = user_secrets.get_secret("WANDB_API_KEY")
+    wandb.login(key=wandb_key)
+    os.environ["WANDB_MODE"] = "online"
+except:
+    print("WandB Key not found in Kaggle Secrets. Logging as anonymous or disabled.")
+    os.environ["WANDB_MODE"] = "dryrun"
+
 num_gpus = torch.cuda.device_count()
-if num_gpus > 1:
-    device = ",".join([str(i) for i in range(num_gpus)])
-    batch_size = 16 * num_gpus 
-elif num_gpus == 1:
-    device = "0"
-    batch_size = 16
-else:
-    device = "cpu"
-    batch_size = 4
+batch_size = 16 * max(1, num_gpus)
+device = ",".join([str(i) for i in range(num_gpus)]) if num_gpus > 0 else "cpu"
 
-print(f"\n--- STARTING TRAINING ON {device.upper()} (GPUs: {num_gpus}) ---")
-
-RESUME_WEIGHTS = "ifbb_jde/bodybuilding_model/weights/last.pt" 
-if RESUME_TRAINING:
-    resume_cmd = f"--resume {RESUME_WEIGHTS}"
-    amp_cmd = "" 
-else:
-    resume_cmd = ""
-    amp_cmd = "--amp" 
+print(f"\n--- STARTING CORRECT JDE TRAINING ON {device.upper()} ---")
 
 !python train.py --data datasets/ifbb_jde/ifbb_jde.yaml \
                 --project ifbb_jde \
@@ -172,8 +221,8 @@ else:
                 --batch {batch_size} \
                 --imgsz 960 \
                 --device {device} \
-                {amp_cmd} \
-                {resume_cmd}
+                --amp \
+                {"--resume True" if RESUME_TRAINING else ""}
 
 # --- 6. AUTO-ZIP RESULTS ---
 print("\n--- ZIPPING RESULTS FOR DOWNLOAD ---")
