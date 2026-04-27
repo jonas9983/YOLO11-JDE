@@ -1,9 +1,10 @@
-# === COLAB TRACKING SCRIPT (V8 - ATHLETE NAMES) ===
+# === COLAB TRACKING SCRIPT (V9 - ROBUST & NAMES) ===
 # 1. Select 'T4 GPU' Accelerator
 # 2. Mount your Google Drive
 # 3. Paste, update PATHS, and run!
 
 import os
+import sys
 from google.colab import drive
 
 # --- 1. MOUNT DRIVE ---
@@ -16,10 +17,14 @@ TEST_VIDEO = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/Videos/2025_E
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
 BRANCH = "feat/multi-gpu-training" 
 
+# THE DB FILE (not a zip!)
+DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/database_builder.db"
+# THE TRAINING IMAGES (needed to build the gallery)
+DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset.zip" 
+
 # --- FRAME RANGE SELECTION ---
-# Set both to 0 to process the WHOLE video!
-START_FRAME = 0 
-END_FRAME = 0   
+START_FRAME = 2000 
+END_FRAME = 15000   
 
 # --- 3. REPO SETUP ---
 %cd /content
@@ -36,55 +41,39 @@ print("Installing dependencies...")
 !pip install -r requirements.txt --quiet
 !pip install --upgrade gdown mlflow pytorch-metric-learning --quiet
 
-# --- 5. PREPARE WEIGHTS & DATASET ---
-print("Unzipping weights...")
-!mkdir -p /content/test_weights
-!unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/
+# --- 5. PREPARE WEIGHTS, DB & DATASET ---
+def run_step(cmd, msg):
+    print(f"\n--- {msg} ---")
+    ret = os.system(cmd)
+    if ret != 0:
+        print(f"\n[ERROR] Step failed: {msg}")
+        sys.exit(1)
+
+run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
+
+# Fix: Use CP for the .db file, not unzip
+run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset/ifbb_jde/dataset_builder.db', "Copying Database")
+
+# Fix: We still need training images to extract gallery embeddings
+if not os.path.exists("/content/dataset/ifbb_jde/train"):
+    run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/', "Unzipping Training Images")
+
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
 
-# We need the dataset images and DB to create the athlete name gallery
-print("Preparing dataset for gallery creation...")
-# Assuming your dataset zip contains 'ifbb_jde' folder with 'train/images' and 'dataset_builder.db'
-# Update this path if your dataset is stored elsewhere!
-DATASET_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset.zip" 
-!mkdir -p /content/dataset
-!unzip -qo "{DATASET_ZIP}" -d /content/dataset/
+# --- 6. CREATE ATHLETE GALLERY ---
+run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt"', "Creating Athlete Gallery")
 
-# --- 6. CREATE ATHLETE GALLERY (THE MAGIC PART) ---
-print("\n--- CREATING ATHLETE GALLERY ---")
-!python ifbb/create_gallery.py --model "{MODEL_PATH}" \
-                               --dataset "/content/dataset/ifbb_jde" \
-                               --db "/content/dataset/ifbb_jde/dataset_builder.db" \
-                               --output "athlete_gallery.pt"
-
-# --- 7. CODEC FIX & EXTRACTION (WITH RESIZING) ---
+# --- 7. CODEC FIX & EXTRACTION ---
 print("\n--- PREPARING VIDEO ---")
-# Using scale=1920:1080 to make it MUCH faster to process and decode!
-if START_FRAME == 0 and END_FRAME == 0:
-    print("Mode: FULL VIDEO (Resizing to 1080p and converting to H.264...)")
-    !ffmpeg -y -i "{TEST_VIDEO}" -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
-else:
-    print(f"Mode: RANGE (Frames {START_FRAME} to {END_FRAME})")
-    FPS = 60 
-    START_SEC = START_FRAME / FPS
-    DURATION_SEC = (END_FRAME - START_FRAME) / FPS
-    !ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
+FPS = 60 
+START_SEC = START_FRAME / FPS
+DURATION_SEC = (END_FRAME - START_FRAME) / FPS
+run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4', "Converting Video to 1080p")
 
-# --- 8. RUN TRACKING WITH NAMES ---
-print("\n--- STARTING TRACKING ---")
-!python track_bodybuilders.py --model "{MODEL_PATH}" \
-                             --source "test_segment.mp4" \
-                             --output "tracked_result.mp4" \
-                             --conf 0.3 \
-                             --imgsz 1280 \
-                             --device 0 \
-                             --gallery "athlete_gallery.pt"
+# --- 8. RUN TRACKING ---
+run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "test_segment.mp4" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt"', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
-print("\n--- SAVING RESULT TO DRIVE ---")
-!mkdir -p "/content/drive/MyDrive/YOLO11_Results/"
-if os.path.exists("tracked_result.mp4"):
-    !cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_test_result.mp4"
-    print(f"Success! Video saved to Drive: YOLO11_Results/tracking_test_result.mp4")
-else:
-    print("Error: tracked_result.mp4 was not created.")
+run_step('mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_test_result.mp4"', "Saving to Drive")
+
+print("\nDONE! Result is in your Drive: YOLO11_Results/tracking_test_result.mp4")
