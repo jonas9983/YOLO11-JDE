@@ -1,4 +1,4 @@
-# === KAGGLE SETUP SCRIPT (V23 - ROBUST EXTRACTION) ===
+# === KAGGLE SETUP SCRIPT (V24 - PERSISTENT STATE FIX) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
@@ -51,7 +51,17 @@ def extract_id(link):
     match = re.search(r"(?:/d/|id=|folders/)([a-zA-Z0-9_-]+)", link)
     return match.group(1) if match else link
 
-if not os.path.exists("datasets/ifbb_jde"):
+# Check if data already exists AND is valid
+data_ready = False
+check_path = Path("datasets/ifbb_jde/train/images")
+if check_path.exists() and len(list(check_path.glob("*.jpg"))) > 0:
+    data_ready = True
+    print("Dataset already exists and contains images. Skipping download.")
+
+if not data_ready:
+    print("Cleaning up old/empty dataset folders...")
+    shutil.rmtree("datasets/ifbb_jde", ignore_errors=True)
+    
     !mkdir -p /tmp/jde_downloads
     !mkdir -p /tmp/jde_raw
     
