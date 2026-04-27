@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V9.4 - NATIVE ERRORS) ===
+# === COLAB TRACKING SCRIPT (V9.5 - EXPLICIT ERROR CAPTURE) ===
 import os
 import sys
 import subprocess
@@ -39,12 +39,19 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 # --- 5. PREPARE WEIGHTS, DB & DATASET ---
 def run_step(cmd, msg):
     print(f"\n--- {msg} ---")
-    try:
-        # Use subprocess to stream output directly to Colab natively
-        subprocess.run(cmd, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"\n[CRITICAL ERROR] {msg} failed! Scroll up to see the exact Python error.")
-        sys.exit(1)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    
+    # Print the standard output so we can see normal progress
+    if result.stdout:
+        print(result.stdout)
+        
+    if result.returncode != 0:
+        print(f"\n[CRITICAL ERROR] {msg} failed!")
+        print(f"Here is the exact error from the script:\n")
+        print("================ ERROR DETAILS ================")
+        print(result.stderr)
+        print("===============================================")
+        raise RuntimeError(f"{msg} failed. See error details above.")
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
 
