@@ -1,4 +1,4 @@
-# === KAGGLE SETUP SCRIPT (V21 - SINGLE OR MULTI-ZIP SUPPORT) ===
+# === KAGGLE SETUP SCRIPT (V22 - NATIVE KAGGLE DATASET OR DRIVE) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
@@ -10,8 +10,11 @@ import shutil
 from pathlib import Path
 
 # --- 1. CONFIGURATION ---
-# Paste EITHER a direct link to a specific zip file, OR a link to a Google Drive folder.
-# The script will automatically detect which one it is!
+# If you uploaded your zips directly to Kaggle (Add Data -> New Dataset), paste the folder path here:
+# e.g., KAGGLE_DATASET_FOLDER = "/kaggle/input/ifbb-jde-zips"
+KAGGLE_DATASET_FOLDER = None 
+
+# OR, if using Google Drive, paste the link here (make sure it's "Anyone with the link"):
 DRIVE_LINK = "PASTE_YOUR_LINK_HERE" 
 
 RESUME_TRAINING = False 
@@ -49,23 +52,30 @@ def extract_id(link):
     return match.group(1) if match else link
 
 if not os.path.exists("datasets/ifbb_jde"):
-    print("Downloading dataset from Google Drive...")
     !mkdir -p /tmp/jde_downloads
     !mkdir -p /tmp/jde_raw
     
-    # Try folder download first, if it fails, try file download
-    if "folder" in DRIVE_LINK or "drive.google.com/drive/folders/" in DRIVE_LINK:
-        print("Detected Google Drive Folder Link. Downloading contents...")
-        !gdown --folder "{DRIVE_LINK}" -O /tmp/jde_downloads
-        contest_zips = list(Path("/tmp/jde_downloads").rglob("*.zip"))
+    if KAGGLE_DATASET_FOLDER and os.path.exists(KAGGLE_DATASET_FOLDER):
+        print(f"Detected Native Kaggle Dataset at {KAGGLE_DATASET_FOLDER}...")
+        contest_zips = list(Path(KAGGLE_DATASET_FOLDER).rglob("*.zip"))
     else:
-        print("Detected Single File Link. Downloading zip...")
-        ZIP_ID = extract_id(DRIVE_LINK)
-        !gdown {ZIP_ID} -O /tmp/jde_downloads/dataset.zip
-        contest_zips = [Path("/tmp/jde_downloads/dataset.zip")]
+        print("Downloading dataset from Google Drive...")
+        if "folder" in DRIVE_LINK or "drive.google.com/drive/folders/" in DRIVE_LINK:
+            print("Detected Google Drive Folder Link. Downloading contents...")
+            !gdown --folder "{DRIVE_LINK}" -O /tmp/jde_downloads
+            contest_zips = list(Path("/tmp/jde_downloads").rglob("*.zip"))
+        else:
+            print("Detected Single File Link. Downloading zip...")
+            ZIP_ID = extract_id(DRIVE_LINK)
+            !gdown {ZIP_ID} -O /tmp/jde_downloads/dataset.zip
+            contest_zips = [Path("/tmp/jde_downloads/dataset.zip")]
     
     print(f"Found {len(contest_zips)} contest zips. Unzipping...")
     
+    if len(contest_zips) == 0:
+        print("[CRITICAL ERROR] No zip files found! If using Google Drive, ensure permissions are set to 'Anyone with the link'.")
+        import sys; sys.exit(1)
+        
     for z in contest_zips:
         !unzip -qo "{str(z)}" -d /tmp/jde_raw/
         
