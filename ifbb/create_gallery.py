@@ -7,9 +7,13 @@ from tqdm import tqdm
 from ultralytics import YOLO
 import cv2
 
-def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt"):
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None):
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     print(f"--- Gallery Creation Debug ---")
     print(f"Model: {model_path}")
+    print(f"Device: {device}")
     print(f"Dataset Dir: {dataset_dir}")
     print(f"DB Path: {db_path}")
     
@@ -17,12 +21,11 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         print(f"ERROR: Database file not found at {db_path}")
         return
 
-    # Load Model
-    model = YOLO(model_path, task="jde")
+    # Load Model on GPU if possible
+    model = YOLO(model_path, task="jde").to(device)
     
-    # Open DB in explicit Read-Only mode for safety
-    db_uri = f"{Path(db_path).absolute().as_uri()}?mode=ro"
-    conn = sqlite3.connect(db_uri, uri=True)
+    # Open DB
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     # Get all athletes from DB
@@ -61,7 +64,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         athlete_name = id_to_name[athlete_id]
         
         # Run inference to get embedding
-        results = model.predict(img_path, imgsz=1280, verbose=False)
+        results = model.predict(img_path, imgsz=1280, device=device, verbose=False)
         
         if len(results) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
             embed = results[0].embeds.data[0].cpu().numpy()
@@ -86,6 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--db", type=str, required=True)
     parser.add_argument("--output", type=str, default="athlete_gallery.pt")
+    parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
     
-    create_gallery(args.model, args.dataset, args.db, args.output)
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device)
