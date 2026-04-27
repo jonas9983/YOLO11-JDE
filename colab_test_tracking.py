@@ -1,6 +1,7 @@
-# === COLAB TRACKING SCRIPT (V9.3 - DEBUG GALLERY) ===
+# === COLAB TRACKING SCRIPT (V9.4 - NATIVE ERRORS) ===
 import os
 import sys
+import subprocess
 from google.colab import drive
 
 # --- 1. MOUNT DRIVE ---
@@ -38,22 +39,11 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 # --- 5. PREPARE WEIGHTS, DB & DATASET ---
 def run_step(cmd, msg):
     print(f"\n--- {msg} ---")
-    ret = os.system(cmd)
-    if ret != 0:
-        print(f"\n[ERROR] Step failed: {msg}")
-        # DEBUG: List files to help the user find the right path
-        if "Database" in msg:
-            folder = os.path.dirname(DB_FILE)
-            print(f"I couldn't find the DB. Here are the files in {folder}:")
-            os.system(f"ls -l '{folder}'")
-        elif "Training Images" in msg:
-            folder = os.path.dirname(DATASET_IMAGES_ZIP)
-            print(f"I couldn't unzip the images. Here are the files in {folder}:")
-            os.system(f"ls -l '{folder}'")
-        elif "Creating Athlete Gallery" in msg:
-            print("\n[DEBUG] The gallery script failed. Let's see what the dataset folder looks like:")
-            os.system("ls -R /content/dataset/ifbb_jde | head -n 30") # Show structure
-            print("...")
+    try:
+        # Use subprocess to stream output directly to Colab natively
+        subprocess.run(cmd, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"\n[CRITICAL ERROR] {msg} failed! Scroll up to see the exact Python error.")
         sys.exit(1)
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
@@ -61,9 +51,6 @@ run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /conte
 # Verification before copy
 if not os.path.exists(DB_FILE):
     print(f"\n[ERROR] DB_FILE not found at: {DB_FILE}")
-    folder = os.path.dirname(DB_FILE)
-    print(f"Contents of {folder}:")
-    os.system(f"ls -F '{folder}'")
     sys.exit(1)
 
 run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset/ifbb_jde/dataset_builder.db', "Copying Database")
@@ -71,12 +58,9 @@ run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset
 # Verification before unzip
 if not os.path.exists(DATASET_IMAGES_ZIP):
     print(f"\n[ERROR] DATASET_IMAGES_ZIP not found at: {DATASET_IMAGES_ZIP}")
-    folder = os.path.dirname(DATASET_IMAGES_ZIP)
-    print(f"Contents of {folder}:")
-    os.system(f"ls -F '{folder}'")
     sys.exit(1)
 
-if not os.path.exists("/content/dataset/ifbb_jde/train"):
+if not os.path.exists("/content/dataset/ifbb_jde/images"):
     run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images")
 
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
