@@ -137,11 +137,15 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     out.release()
     
     # Save logs to CSV
+    log_path = output_path.replace(".mp4", "_debug_log.csv")
     if tracking_logs:
         df = pd.DataFrame(tracking_logs)
-        log_path = output_path.replace(".mp4", "_debug_log.csv")
         df.to_csv(log_path, index=False)
-        print(f"Debug log saved to {log_path}")
+        print(f"\n[DEBUG] Debug log saved to {log_path} with {len(tracking_logs)} entries.")
+    else:
+        # Create an empty CSV so we know the script tried to save it
+        pd.DataFrame(columns=["frame", "track_id", "best_match", "similarity", "bbox"]).to_csv(log_path, index=False)
+        print(f"\n[WARNING] No tracking logs were generated! Empty CSV saved to {log_path}.")
     
     print(f"Done! Saved result to {output_path}")
 
