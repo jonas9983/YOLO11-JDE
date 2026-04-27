@@ -1,4 +1,4 @@
-# === KAGGLE SETUP SCRIPT (V20 - DIRECT FOLDER DOWNLOAD) ===
+# === KAGGLE SETUP SCRIPT (V21 - SINGLE OR MULTI-ZIP SUPPORT) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
@@ -10,9 +10,9 @@ import shutil
 from pathlib import Path
 
 # --- 1. CONFIGURATION ---
-# Right-click your "ifbb_jde_dataset" folder in Google Drive -> Share -> Copy Link
-# Paste that folder link below:
-DRIVE_FOLDER_LINK = "PASTE_YOUR_FOLDER_LINK_HERE" 
+# Paste EITHER a direct link to a specific zip file, OR a link to a Google Drive folder.
+# The script will automatically detect which one it is!
+DRIVE_LINK = "PASTE_YOUR_LINK_HERE" 
 
 RESUME_TRAINING = False 
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
@@ -43,19 +43,28 @@ if not os.path.exists("ultralytics/assets/bus.jpg"):
 
 os.environ["WANDB_MODE"] = "disabled"
 
-# --- 4. MULTI-ZIP FOLDER DOWNLOAD & EXTRACTION ---
+# --- 4. SMART DATA DOWNLOAD & EXTRACTION ---
+def extract_id(link):
+    match = re.search(r"(?:/d/|id=|folders/)([a-zA-Z0-9_-]+)", link)
+    return match.group(1) if match else link
+
 if not os.path.exists("datasets/ifbb_jde"):
-    print("Downloading entire contest folder from Google Drive...")
+    print("Downloading dataset from Google Drive...")
     !mkdir -p /tmp/jde_downloads
     !mkdir -p /tmp/jde_raw
     
-    # Use gdown to download the entire folder!
-    # gdown automatically handles the folder link if we pass --folder
-    !gdown --folder "{DRIVE_FOLDER_LINK}" -O /tmp/jde_downloads
+    # Try folder download first, if it fails, try file download
+    if "folder" in DRIVE_LINK or "drive.google.com/drive/folders/" in DRIVE_LINK:
+        print("Detected Google Drive Folder Link. Downloading contents...")
+        !gdown --folder "{DRIVE_LINK}" -O /tmp/jde_downloads
+        contest_zips = list(Path("/tmp/jde_downloads").rglob("*.zip"))
+    else:
+        print("Detected Single File Link. Downloading zip...")
+        ZIP_ID = extract_id(DRIVE_LINK)
+        !gdown {ZIP_ID} -O /tmp/jde_downloads/dataset.zip
+        contest_zips = [Path("/tmp/jde_downloads/dataset.zip")]
     
-    # Find all the downloaded zips
-    contest_zips = list(Path("/tmp/jde_downloads").rglob("*.zip"))
-    print(f"Found {len(contest_zips)} contest zips. Unzipping all of them...")
+    print(f"Found {len(contest_zips)} contest zips. Unzipping...")
     
     for z in contest_zips:
         !unzip -qo "{str(z)}" -d /tmp/jde_raw/
@@ -84,7 +93,7 @@ if not os.path.exists("datasets/ifbb_jde"):
     data_yaml = f"path: /kaggle/working/YOLO11-JDE/datasets/ifbb_jde\ntrain: train/images\nval: val/images\nnc: 1\nnames: ['person']\n"
     with open("datasets/ifbb_jde/ifbb_jde.yaml", "w") as f: f.write(data_yaml)
 
-    # Clean up to save massive disk space on Kaggle
+    # Clean up to save disk space
     shutil.rmtree("/tmp/jde_downloads", ignore_errors=True)
     shutil.rmtree("/tmp/jde_raw", ignore_errors=True)
 
