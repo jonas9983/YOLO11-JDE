@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V13 - SMART SEGMENTS) ===
+# === COLAB TRACKING SCRIPT (V14 - REAL-TIME LOGS) ===
 import os
 import sys
 import subprocess
@@ -40,10 +40,19 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 # --- 5. PREPARE WEIGHTS & DB ---
 def run_step(cmd, msg):
     print(f"\n--- {msg} ---")
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    if result.stdout: print(result.stdout)
-    if result.returncode != 0:
-        print(f"\n[CRITICAL ERROR] {msg} failed!\nDetails:\n{result.stderr}")
+    # Stream output in real-time
+    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    
+    while True:
+        output = process.stdout.readline()
+        if output == '' and process.poll() is not None:
+            break
+        if output:
+            print(output.strip())
+            sys.stdout.flush()
+            
+    if process.returncode != 0:
+        print(f"\n[CRITICAL ERROR] {msg} failed!")
         raise RuntimeError(f"{msg} failed.")
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
