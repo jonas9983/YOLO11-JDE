@@ -55,7 +55,7 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    print(f"Tracking with debug logging enabled...")
+    print(f"Tracking bodybuilders...")
     
     count = 0
     with tqdm(total=num_to_process) as pbar:
@@ -76,8 +76,6 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
             
             if len(results) > 0:
                 result = results[0]
-                
-                # Debug Info
                 frame_num = start_frame + count
                 
                 if hasattr(result, 'boxes') and result.boxes.id is not None and getattr(result, 'embeds', None) is not None:
@@ -97,14 +95,14 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                         best_sim = sim
                                         best_name = athlete_name
                             
-                            # Threshold check for labeling
-                            if best_sim > 0.45: # Lowered threshold for visibility
+                            # Lowered threshold for labeling visibility
+                            if best_sim > 0.25:
                                 track_to_athlete[track_id] = f"{best_name}"
                             else:
                                 if track_id not in track_to_athlete:
                                     track_to_athlete[track_id] = f"ID:{track_id}"
                             
-                            # Log every detection for debugging
+                            # Log data for CSV
                             tracking_logs.append({
                                 "frame": frame_num,
                                 "track_id": track_id,
