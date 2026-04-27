@@ -1,7 +1,8 @@
-# === COLAB TRACKING SCRIPT (V10 - REUSE GALLERY) ===
+# === COLAB TRACKING SCRIPT (V11 - INSTANT GALLERY & GPU VIDEO) ===
 import os
 import sys
 import subprocess
+import cv2
 from google.colab import drive
 
 # --- 1. MOUNT DRIVE ---
@@ -16,13 +17,11 @@ BRANCH = "feat/multi-gpu-training"
 
 # PATHS IN DRIVE
 DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/dataset_builder.db"
-DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
-
-# !!! GALLERY PERSISTENCE !!!
-# This file will be saved to your Drive so you never have to rebuild it!
+DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
 DRIVE_GALLERY_PATH = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/athlete_gallery.pt"
 
 # --- FRAME RANGE SELECTION ---
+# Processing 13,000 frames (approx 8.6 mins) will take ~15 mins total on T4.
 START_FRAME = 2000 
 END_FRAME = 15000
 
@@ -55,27 +54,30 @@ MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weight
 
 # --- 6. CREATE OR LOAD ATHLETE GALLERY ---
 if os.path.exists(DRIVE_GALLERY_PATH):
-    print(f"\n--- LOADING EXISTING GALLERY FROM DRIVE ---")
+    print(f"\n--- LOADING EXISTING GALLERY FROM DRIVE (INSTANT) ---")
     !cp "{DRIVE_GALLERY_PATH}" "athlete_gallery.pt"
-    print("Gallery loaded instantly! Skipping extraction step.")
+    print("Gallery loaded! Skipping image processing.")
 else:
     print(f"\n--- CREATING NEW ATHLETE GALLERY (GPU Accelerated) ---")
-    # We only unzip images if we actually need to build the gallery
     if not os.path.exists("/content/dataset/ifbb_jde/images"):
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images")
-    
     run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda', "Building Athlete Gallery")
-    
-    # Save it back to Drive for next time!
     !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
-    print(f"Gallery saved to Drive for future use: {DRIVE_GALLERY_PATH}")
+    print(f"Gallery saved to Drive: {DRIVE_GALLERY_PATH}")
 
-# --- 7. CODEC FIX & EXTRACTION ---
-print("\n--- PREPARING VIDEO ---")
-FPS = 60 
-START_SEC = START_FRAME / FPS
-DURATION_SEC = (END_FRAME - START_FRAME) / FPS
-run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4', "Converting Video to 1080p")
+# --- 7. CODEC FIX & EXTRACTION (GPU ACCELERATED) ---
+print("\n--- PREPARING VIDEO (NVENC GPU) ---")
+cap = cv2.VideoCapture(TEST_VIDEO)
+fps = cap.get(cv2.CAP_PROP_FPS)
+cap.release()
+if fps < 1: fps = 25 
+print(f"Detected Video FPS: {fps}")
+
+START_SEC = START_FRAME / fps
+DURATION_SEC = (END_FRAME - START_FRAME) / fps
+
+# Using h264_nvenc to encode the 1080p output using the GPU's hardware chip
+run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 test_segment.mp4', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
 run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "test_segment.mp4" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt"', "Running Tracking")
