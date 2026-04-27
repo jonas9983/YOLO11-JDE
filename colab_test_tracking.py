@@ -14,7 +14,7 @@ REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
 BRANCH = "feat/multi-gpu-training" 
 
 # THE DB FILE - DOUBLE CHECK THIS FILENAME!
-DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/database_builder.db"
+DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/dataset_builder.db"
 # THE TRAINING IMAGES
 DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset.zip" 
 
