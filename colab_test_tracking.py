@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V12 - ROBUST & SKIP VIDEO PREP) ===
+# === COLAB TRACKING SCRIPT (V13 - SMART SEGMENTS) ===
 import os
 import sys
 import subprocess
@@ -65,9 +65,12 @@ else:
     print(f"Gallery saved to Drive: {DRIVE_GALLERY_PATH}")
 
 # --- 7. CODEC FIX & EXTRACTION (GPU ACCELERATED) ---
-print("\n--- PREPARING VIDEO (NVENC GPU) ---")
-if os.path.exists("test_segment.mp4"):
-    print("test_segment.mp4 already exists! Skipping conversion.")
+# Create a unique filename for this specific range so we don't have to re-convert if we run it again
+LOCAL_VIDEO = f"segment_{START_FRAME}_{END_FRAME}.mp4"
+
+print(f"\n--- PREPARING VIDEO: {LOCAL_VIDEO} (NVENC GPU) ---")
+if os.path.exists(LOCAL_VIDEO):
+    print(f"{LOCAL_VIDEO} already exists! Skipping conversion.")
 else:
     cap = cv2.VideoCapture(TEST_VIDEO)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -79,12 +82,13 @@ else:
     DURATION_SEC = (END_FRAME - START_FRAME) / fps
 
     # Using h264_nvenc to encode the 1080p output using the GPU's hardware chip
-    run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 test_segment.mp4', "GPU Video Conversion")
+    run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 {LOCAL_VIDEO}', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
-run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "test_segment.mp4" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt"', "Running Tracking")
+# IMPORTANT: Since LOCAL_VIDEO is already cut, we start at --start-frame 0
+run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
-run_step('mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_test_result.mp4"', "Saving to Drive")
+run_step(f'mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}.mp4"', "Saving to Drive")
 
-print("\nDONE! Result is in your Drive: YOLO11_Results/tracking_test_result.mp4")
+print(f"\nDONE! Result saved as: YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}.mp4")
