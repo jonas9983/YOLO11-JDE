@@ -26,7 +26,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     cursor = conn.cursor()
     
     # Get all athletes from DB
-    cursor.execute("SELECT id, name FROM id_mapping")
+    cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
     athletes = cursor.fetchall()
     id_to_name = {str(a[0]): a[1] for a in athletes}
     print(f"Found {len(id_to_name)} athlete mappings in DB.")
