@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V14 - REAL-TIME LOGS) ===
+# === COLAB TRACKING SCRIPT (V15 - DEBUG LOGS TO DRIVE) ===
 import os
 import sys
 import subprocess
@@ -98,6 +98,11 @@ else:
 run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
-run_step(f'mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}.mp4"', "Saving to Drive")
+run_step(f'mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}.mp4"', "Saving Video to Drive")
 
-print(f"\nDONE! Result saved as: YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}.mp4")
+# NEW: Save the debug log CSV to Drive as well!
+DEBUG_CSV = "tracked_result_debug_log.csv"
+if os.path.exists(DEBUG_CSV):
+    run_step(f'cp "{DEBUG_CSV}" "/content/drive/MyDrive/YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}_debug.csv"', "Saving Debug CSV to Drive")
+
+print(f"\nDONE! Files saved to Drive in YOLO11_Results folder.")
