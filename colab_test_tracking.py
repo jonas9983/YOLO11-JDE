@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V11 - INSTANT GALLERY & GPU VIDEO) ===
+# === COLAB TRACKING SCRIPT (V12 - ROBUST & SKIP VIDEO PREP) ===
 import os
 import sys
 import subprocess
@@ -21,7 +21,6 @@ DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_
 DRIVE_GALLERY_PATH = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/athlete_gallery.pt"
 
 # --- FRAME RANGE SELECTION ---
-# Processing 13,000 frames (approx 8.6 mins) will take ~15 mins total on T4.
 START_FRAME = 2000 
 END_FRAME = 15000
 
@@ -67,17 +66,20 @@ else:
 
 # --- 7. CODEC FIX & EXTRACTION (GPU ACCELERATED) ---
 print("\n--- PREPARING VIDEO (NVENC GPU) ---")
-cap = cv2.VideoCapture(TEST_VIDEO)
-fps = cap.get(cv2.CAP_PROP_FPS)
-cap.release()
-if fps < 1: fps = 25 
-print(f"Detected Video FPS: {fps}")
+if os.path.exists("test_segment.mp4"):
+    print("test_segment.mp4 already exists! Skipping conversion.")
+else:
+    cap = cv2.VideoCapture(TEST_VIDEO)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    if fps < 1: fps = 25 
+    print(f"Detected Video FPS: {fps}")
 
-START_SEC = START_FRAME / fps
-DURATION_SEC = (END_FRAME - START_FRAME) / fps
+    START_SEC = START_FRAME / fps
+    DURATION_SEC = (END_FRAME - START_FRAME) / fps
 
-# Using h264_nvenc to encode the 1080p output using the GPU's hardware chip
-run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 test_segment.mp4', "GPU Video Conversion")
+    # Using h264_nvenc to encode the 1080p output using the GPU's hardware chip
+    run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 test_segment.mp4', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
 run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "test_segment.mp4" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt"', "Running Tracking")

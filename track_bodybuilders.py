@@ -86,7 +86,7 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                 result = results[0]
                 
                 # Perform Gallery Matching for new tracks
-                if gallery and hasattr(result, 'boxes') and result.boxes.id is not None:
+                if gallery and hasattr(result, 'boxes') and result.boxes.id is not None and getattr(result, 'embeds', None) is not None:
                     ids = result.boxes.id.cpu().numpy().astype(int)
                     embeds = result.embeds.data.cpu().numpy()
                     
@@ -98,15 +98,15 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                         best_name = "Unknown"
                         best_sim = threshold
                         
-                        for athlete_name, ref_embed in gallery.items():
-                            sim = cosine_similarity(embeds[i], ref_embed)
-                            if sim > best_sim:
-                                best_sim = sim
-                                best_name = athlete_name
+                        # Check if we have enough embeddings (sometimes mismatch in lengths)
+                        if i < len(embeds):
+                            for athlete_name, ref_embed in gallery.items():
+                                sim = cosine_similarity(embeds[i], ref_embed)
+                                if sim > best_sim:
+                                    best_sim = sim
+                                    best_name = athlete_name
                         
-                        # Rolling Identity: Update the track's name based on current best guess
-                        # This allows the name to "fix itself" if the athlete was initially 
-                        # in a weird pose that looked like someone else.
+                        # Rolling Identity
                         track_to_athlete[track_id] = f"{best_name} (ID:{track_id})"
                 
                 # Manual Annotation to show Athlete Names
