@@ -73,7 +73,8 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                 verbose=False
             )
             
-            annotated_frame = results[0].plot()
+            # This will plot class names (e.g., 'Cbum') + ID if the model was trained with them
+            annotated_frame = results[0].plot(labels=True, conf=True) 
             out.write(annotated_frame)
             pbar.update(1)
             count += 1

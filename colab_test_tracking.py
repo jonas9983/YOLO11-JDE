@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V6 - FRAME RANGE) ===
+# === COLAB TRACKING SCRIPT (V7 - FULL VIDEO OR RANGE) ===
 # 1. Select 'T4 GPU' Accelerator
 # 2. Mount your Google Drive
 # 3. Paste, update PATHS, and run!
@@ -16,10 +16,11 @@ TEST_VIDEO = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/Videos/2025_E
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
 BRANCH = "feat/multi-gpu-training" 
 
-# --- NEW: FRAME RANGE SELECTION ---
-# Example: 1800 to 2400 (roughly 1 minute in at 30fps)
-START_FRAME = 1800 
-END_FRAME = 2400   
+# --- FRAME RANGE SELECTION ---
+# Set both to 0 to process the WHOLE video!
+# Example for a specific range: 1800 to 2400
+START_FRAME = 0 
+END_FRAME = 0   
 
 # --- 3. REPO SETUP ---
 %cd /content
@@ -42,19 +43,22 @@ print("Unzipping weights...")
 !unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
 
-# --- 6. CODEC FIX & SEGMENT EXTRACTION ---
-print(f"\n--- EXTRACTING SEGMENT (Frames {START_FRAME} to {END_FRAME}) ---")
-# Use ffmpeg to extract and convert to H.264 simultaneously
-# We calculate start time (ss) based on 60fps (typical for 4K). 
-# If your video is 30fps, adjust the division.
-FPS = 60 
-START_SEC = START_FRAME / FPS
-DURATION_SEC = (END_FRAME - START_FRAME) / FPS
-
-!ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
+# --- 6. CODEC FIX & EXTRACTION (WITH RESIZING) ---
+print("\n--- PREPARING VIDEO ---")
+# Using scale=1920:1080 to make it MUCH faster to process and decode!
+if START_FRAME == 0 and END_FRAME == 0:
+    print("Mode: FULL VIDEO (Resizing to 1080p and converting to H.264...)")
+    !ffmpeg -y -i "{TEST_VIDEO}" -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
+else:
+    print(f"Mode: RANGE (Frames {START_FRAME} to {END_FRAME})")
+    FPS = 60 
+    START_SEC = START_FRAME / FPS
+    DURATION_SEC = (END_FRAME - START_FRAME) / FPS
+    !ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
 
 # --- 7. RUN TRACKING ---
 print("\n--- STARTING TRACKING ---")
+# Running the tracking on the 1080p version
 !python track_bodybuilders.py --model "{MODEL_PATH}" \
                              --source "test_segment.mp4" \
                              --output "tracked_result.mp4" \
