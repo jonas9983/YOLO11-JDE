@@ -1,4 +1,4 @@
-# === KAGGLE SETUP SCRIPT (V22 - NATIVE KAGGLE DATASET OR DRIVE) ===
+# === KAGGLE SETUP SCRIPT (V23 - ROBUST EXTRACTION) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
@@ -83,22 +83,47 @@ if not os.path.exists("datasets/ifbb_jde"):
     for p in ["train/images", "train/labels", "val/images", "val/labels"]:
         os.makedirs(f"datasets/ifbb_jde/{p}", exist_ok=True)
     
-    all_images = list(Path("/tmp/jde_raw").rglob("*.jpg")) + list(Path("/tmp/jde_raw").rglob("*.png"))
-    random.shuffle(all_images)
+    # Robust search for images anywhere inside the extracted folders
+    all_images = list(Path("/tmp/jde_raw").rglob("*.jpg")) + list(Path("/tmp/jde_raw").rglob("*.png")) + list(Path("/tmp/jde_raw").rglob("*.jpeg"))
     
+    if len(all_images) == 0:
+        print("[CRITICAL ERROR] No images found inside the extracted zip files!")
+        print("Checking contents of /tmp/jde_raw:")
+        !ls -la /tmp/jde_raw
+        import sys; sys.exit(1)
+
+    random.shuffle(all_images)
     val_count = int(len(all_images) * 0.10) 
     
     print(f"Moving {len(all_images)} total images ({val_count} to Validation)...")
+    valid_pairs = 0
     for i, img_path in enumerate(all_images):
         split = "val" if i < val_count else "train"
-        label_path = img_path.parent.parent / "labels" / f"{img_path.stem}.txt"
         
-        if not label_path.exists():
-            label_path = img_path.parent / f"{img_path.stem}.txt"
+        # Check potential label locations
+        label_name = f"{img_path.stem}.txt"
+        potential_labels = [
+            img_path.parent.parent / "labels" / label_name, # standard YOLO structure
+            img_path.parent / label_name,                   # Same folder
+            Path(str(img_path.parent).replace("images", "labels")) / label_name # Sibling folder
+        ]
         
-        if label_path.exists():
+        label_path = None
+        for p in potential_labels:
+            if p.exists():
+                label_path = p
+                break
+                
+        if label_path:
             shutil.copy(img_path, f"datasets/ifbb_jde/{split}/images/{img_path.name}")
             shutil.copy(label_path, f"datasets/ifbb_jde/{split}/labels/{label_path.name}")
+            valid_pairs += 1
+            
+    print(f"Successfully processed {valid_pairs} image/label pairs.")
+    
+    if valid_pairs == 0:
+        print("[CRITICAL ERROR] Found images, but no matching .txt label files!")
+        import sys; sys.exit(1)
             
     data_yaml = f"path: /kaggle/working/YOLO11-JDE/datasets/ifbb_jde\ntrain: train/images\nval: val/images\nnc: 1\nnames: ['person']\n"
     with open("datasets/ifbb_jde/ifbb_jde.yaml", "w") as f: f.write(data_yaml)
