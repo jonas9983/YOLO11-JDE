@@ -8,7 +8,16 @@ from ultralytics import YOLO
 import cv2
 
 def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt"):
-    print(f"Loading model for gallery extraction: {model_path}")
+    print(f"--- Gallery Creation Debug ---")
+    print(f"Model: {model_path}")
+    print(f"Dataset Dir: {dataset_dir}")
+    print(f"DB Path: {db_path}")
+    
+    if not os.path.exists(db_path):
+        print(f"ERROR: Database file not found at {db_path}")
+        return
+
+    # Load Model
     model = YOLO(model_path, task="jde")
     
     # Open DB in explicit Read-Only mode for safety
@@ -20,21 +29,29 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     cursor.execute("SELECT id, name FROM id_mapping")
     athletes = cursor.fetchall()
     id_to_name = {str(a[0]): a[1] for a in athletes}
+    print(f"Found {len(id_to_name)} athlete mappings in DB.")
     
     gallery = {} # name -> list of embeddings
     
-    dataset_path = Path(dataset_dir)
-    img_dir = dataset_path / "train" / "images"
-    
-    if not img_dir.exists():
-        print(f"Error: {img_dir} not found!")
+    # SMART SEARCH: Find the 'images' folder anywhere inside dataset_dir
+    img_dir = None
+    for root, dirs, files in os.walk(dataset_dir):
+        if root.endswith("images") or root.endswith("train/images") or root.endswith("train\\images"):
+            # Verify it has jpgs
+            if any(f.endswith(".jpg") for f in files):
+                img_dir = Path(root)
+                break
+            
+    if not img_dir or not img_dir.exists():
+        print(f"ERROR: Could not find an 'images' folder with .jpg files inside {dataset_dir}")
         return
 
-    print("Extracting reference embeddings from training set...")
+    print(f"Found images at: {img_dir}")
     images = list(img_dir.glob("*.jpg"))
+    print(f"Total images found: {len(images)}")
     
     # Process images and group by athlete ID (filename starts with ID_)
-    for img_path in tqdm(images[:1000]): # Limit to first 1000 for speed, usually enough
+    for img_path in tqdm(images[:1000]): # Limit for speed
         filename = img_path.name
         athlete_id = filename.split('_')[0]
         
@@ -47,7 +64,6 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         results = model.predict(img_path, imgsz=1280, verbose=False)
         
         if len(results) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
-            # Take the largest detection (assuming it's our athlete)
             embed = results[0].embeds[0].cpu().numpy()
             
             if athlete_name not in gallery:
