@@ -26,7 +26,6 @@ DRIVE_GALLERY_PATH = f"{DRIVE_BASE}/athlete_gallery.pt"
 SEGMENT_DIR = "/content/drive/MyDrive/YOLO11_Results/segments"
 os.makedirs(SEGMENT_DIR, exist_ok=True)
 
-# !!! CONTEST FILTERING !!!
 CONTEST_FILTER = "Prague_Pro" 
 
 # Set to False to use the gallery already in your Drive

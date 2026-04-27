@@ -174,3 +174,4 @@ calibration_*.npy
 
 *.zip
 *.db
+*.csv

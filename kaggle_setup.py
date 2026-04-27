@@ -129,5 +129,3 @@ print("\n--- ZIPPING RESULTS FOR DOWNLOAD ---")
 !zip -rq mlflow_results.zip YOLO11-JDE/runs/mlflow
 !zip -rq weights_results.zip YOLO11-JDE/ifbb_jde/bodybuilding_model/weights
 print("Done! Look for 'mlflow_results.zip' and 'weights_results.zip' in the Kaggle 'Output' tab.")
-
-
