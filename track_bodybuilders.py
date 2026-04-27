@@ -88,7 +88,7 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                 # Perform Gallery Matching for new tracks
                 if gallery and hasattr(result, 'boxes') and result.boxes.id is not None:
                     ids = result.boxes.id.cpu().numpy().astype(int)
-                    embeds = result.embeds.cpu().numpy()
+                    embeds = result.embeds.data.cpu().numpy()
                     
                     for i, track_id in enumerate(ids):
                         # Use a threshold for similarity
