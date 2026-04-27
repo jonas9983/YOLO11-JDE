@@ -58,7 +58,8 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     print(f"Tracking bodybuilders...")
     
     count = 0
-    with tqdm(total=num_to_process) as pbar:
+    # mininterval=2.0 prevents tqdm from flooding the Colab console
+    with tqdm(total=num_to_process, mininterval=2.0) as pbar:
         while cap.isOpened():
             success, frame = cap.read()
             if not success or (count >= num_to_process): 
@@ -78,22 +79,34 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                 result = results[0]
                 frame_num = start_frame + count
                 
-                if hasattr(result, 'boxes') and result.boxes.id is not None and getattr(result, 'embeds', None) is not None:
+                if hasattr(result, 'boxes') and result.boxes.id is not None:
                     ids = result.boxes.id.cpu().numpy().astype(int)
-                    embeds = result.embeds.data.cpu().numpy()
                     boxes = result.boxes.xyxy.cpu().numpy()
+                    
+                    # Fetch embeddings directly from the tracker's active state
+                    tracker = getattr(model.predictor, 'trackers', [None])[0]
+                    track_embeds = {}
+                    if tracker and hasattr(tracker, 'tracked_stracks'):
+                        for t in tracker.tracked_stracks + getattr(tracker, 'lost_stracks', []):
+                            feat = getattr(t, 'smooth_feat', getattr(t, 'curr_feat', getattr(t, 'features', None)))
+                            if feat is not None:
+                                # Ensure it's a numpy array, sometimes it's a deque of features
+                                if isinstance(feat, np.ndarray):
+                                    track_embeds[t.track_id] = feat
+                                elif isinstance(feat, list) and len(feat) > 0:
+                                    track_embeds[t.track_id] = feat[-1]
                     
                     for i, track_id in enumerate(ids):
                         best_name = "Unknown"
                         best_sim = 0.0
                         
-                        if i < len(embeds):
-                            if gallery:
-                                for athlete_name, ref_embed in gallery.items():
-                                    sim = cosine_similarity(embeds[i], ref_embed)
-                                    if sim > best_sim:
-                                        best_sim = sim
-                                        best_name = athlete_name
+                        if track_id in track_embeds and gallery:
+                            embed = track_embeds[track_id]
+                            for athlete_name, ref_embed in gallery.items():
+                                sim = cosine_similarity(embed, ref_embed)
+                                if sim > best_sim:
+                                    best_sim = sim
+                                    best_name = athlete_name
                             
                             # Lowered threshold for labeling visibility
                             if best_sim > 0.25:
@@ -110,6 +123,10 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                 "similarity": round(float(best_sim), 4),
                                 "bbox": boxes[i].tolist()
                             })
+                        else:
+                            # If no embedding found, just ensure the ID is shown
+                            if track_id not in track_to_athlete:
+                                track_to_athlete[track_id] = f"ID:{track_id}"
 
                 # Annotation
                 annotated_frame = frame.copy()
