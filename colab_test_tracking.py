@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V15 - DEBUG LOGS TO DRIVE) ===
+# === COLAB TRACKING SCRIPT (V16 - CONTEST FILTERING) ===
 import os
 import sys
 import subprocess
@@ -18,7 +18,14 @@ BRANCH = "feat/multi-gpu-training"
 # PATHS IN DRIVE
 DB_FILE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/dataset_builder.db"
 DATASET_IMAGES_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
-DRIVE_GALLERY_PATH = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/athlete_gallery.pt"
+
+# !!! CONTEST FILTERING !!!
+# This limits the search to only these athletes. 
+# Set to None if you want to search the entire database.
+CONTEST_FILTER = "2025_IFBB_EVLS_Prague_Pro" 
+
+# Set this to True if you want to rebuild the gallery from scratch
+FORCE_REBUILD_GALLERY = False
 
 # --- FRAME RANGE SELECTION ---
 START_FRAME = 2000 
@@ -40,19 +47,14 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 # --- 5. PREPARE WEIGHTS & DB ---
 def run_step(cmd, msg):
     print(f"\n--- {msg} ---")
-    # Stream output in real-time
     process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    
     while True:
         output = process.stdout.readline()
-        if output == '' and process.poll() is not None:
-            break
+        if output == '' and process.poll() is not None: break
         if output:
             print(output.strip())
             sys.stdout.flush()
-            
     if process.returncode != 0:
-        print(f"\n[CRITICAL ERROR] {msg} failed!")
         raise RuntimeError(f"{msg} failed.")
 
 run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights")
@@ -61,48 +63,37 @@ run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
 
 # --- 6. CREATE OR LOAD ATHLETE GALLERY ---
-if os.path.exists(DRIVE_GALLERY_PATH):
-    print(f"\n--- LOADING EXISTING GALLERY FROM DRIVE (INSTANT) ---")
-    !cp "{DRIVE_GALLERY_PATH}" "athlete_gallery.pt"
-    print("Gallery loaded! Skipping image processing.")
+GALLERY_FILE = "athlete_gallery.pt"
+if os.path.exists(GALLERY_FILE) and not FORCE_REBUILD_GALLERY:
+    print(f"\n--- REUSING LOCAL GALLERY ---")
 else:
-    print(f"\n--- CREATING NEW ATHLETE GALLERY (GPU Accelerated) ---")
+    print(f"\n--- BUILDING FILTERED ATHLETE GALLERY (Contest: {CONTEST_FILTER}) ---")
     if not os.path.exists("/content/dataset/ifbb_jde/images"):
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images")
-    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda', "Building Athlete Gallery")
-    !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
-    print(f"Gallery saved to Drive: {DRIVE_GALLERY_PATH}")
+    
+    filter_cmd = f"--contest {CONTEST_FILTER}" if CONTEST_FILTER else ""
+    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "{GALLERY_FILE}" --device cuda {filter_cmd}', "Building Athlete Gallery")
 
-# --- 7. CODEC FIX & EXTRACTION (GPU ACCELERATED) ---
-# Create a unique filename for this specific range so we don't have to re-convert if we run it again
+# --- 7. CODEC FIX & EXTRACTION ---
 LOCAL_VIDEO = f"segment_{START_FRAME}_{END_FRAME}.mp4"
-
-print(f"\n--- PREPARING VIDEO: {LOCAL_VIDEO} (NVENC GPU) ---")
-if os.path.exists(LOCAL_VIDEO):
-    print(f"{LOCAL_VIDEO} already exists! Skipping conversion.")
-else:
+if not os.path.exists(LOCAL_VIDEO):
+    print(f"\n--- PREPARING VIDEO (NVENC GPU) ---")
     cap = cv2.VideoCapture(TEST_VIDEO)
     fps = cap.get(cv2.CAP_PROP_FPS)
     cap.release()
     if fps < 1: fps = 25 
-    print(f"Detected Video FPS: {fps}")
-
     START_SEC = START_FRAME / fps
     DURATION_SEC = (END_FRAME - START_FRAME) / fps
-
-    # Using h264_nvenc to encode the 1080p output using the GPU's hardware chip
     run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 {LOCAL_VIDEO}', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
-# IMPORTANT: Since LOCAL_VIDEO is already cut, we start at --start-frame 0
-run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
+# Using threshold 0.25 to see more names
+run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "{GALLERY_FILE}" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
-run_step(f'mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}.mp4"', "Saving Video to Drive")
+OUTPUT_NAME = f"tracking_{START_FRAME}_{END_FRAME}"
+run_step(f'mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/{OUTPUT_NAME}.mp4"', "Saving Video to Drive")
+if os.path.exists("tracked_result_debug_log.csv"):
+    run_step(f'cp "tracked_result_debug_log.csv" "/content/drive/MyDrive/YOLO11_Results/{OUTPUT_NAME}_debug.csv"', "Saving Debug CSV to Drive")
 
-# NEW: Save the debug log CSV to Drive as well!
-DEBUG_CSV = "tracked_result_debug_log.csv"
-if os.path.exists(DEBUG_CSV):
-    run_step(f'cp "{DEBUG_CSV}" "/content/drive/MyDrive/YOLO11_Results/tracking_{START_FRAME}_{END_FRAME}_debug.csv"', "Saving Debug CSV to Drive")
-
-print(f"\nDONE! Files saved to Drive in YOLO11_Results folder.")
+print(f"\nDONE! Results saved as {OUTPUT_NAME} in YOLO11_Results folder.")
