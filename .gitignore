@@ -173,3 +173,4 @@ calibration_*.npy
 /tracker/evaluation/outputs/
 
 *.zip
+*.db

@@ -64,7 +64,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         results = model.predict(img_path, imgsz=1280, verbose=False)
         
         if len(results) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
-            embed = results[0].embeds[0].cpu().numpy()
+            embed = results[0].embeds.data[0].cpu().numpy()
             
             if athlete_name not in gallery:
                 gallery[athlete_name] = []
