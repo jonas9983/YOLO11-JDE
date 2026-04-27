@@ -65,19 +65,40 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         athlete_name = id_to_name[athlete_id]
 
         # If we have a contest filter, only use images from that contest
-        # We check if the image path contains the contest name (e.g., inside a folder named after the contest)
         if contest_name and contest_name.upper() not in img_path.as_posix().upper():
             continue
         
-        # Run inference to get embedding
-        results = model.predict(img_path, imgsz=1280, device=device, verbose=False)
+        # 1. Load the raw image
+        img_cv = cv2.imread(str(img_path))
+        if img_cv is None: continue
         
-        if len(results) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
-            embed = results[0].embeds.data[0].cpu().numpy()
+        # 2. Run detection to find the athletes
+        det_results = model(img_cv, imgsz=1280, device=device, verbose=False, classes=[0])
+        
+        if len(det_results) > 0 and len(det_results[0].boxes) > 0:
+            boxes = det_results[0].boxes.xyxy.cpu().numpy()
             
-            if athlete_name not in gallery:
-                gallery[athlete_name] = []
-            gallery[athlete_name].append(embed)
+            # 3. Find the LARGEST bounding box (the main athlete)
+            areas = [(box[2]-box[0]) * (box[3]-box[1]) for box in boxes]
+            largest_idx = np.argmax(areas)
+            x1, y1, x2, y2 = map(int, boxes[largest_idx])
+            
+            # 4. CROP to the athlete only
+            h, w, _ = img_cv.shape
+            y1, y2 = max(0, y1), min(h, y2)
+            x1, x2 = max(0, x1), min(w, x2)
+            cropped_athlete = img_cv[y1:y2, x1:x2]
+            
+            # 5. Extract PURE embedding from the crop
+            # Use smaller imgsz for crop to stay efficient
+            crop_results = model.predict(cropped_athlete, imgsz=640, device=device, verbose=False)
+            
+            if len(crop_results) > 0 and hasattr(crop_results[0], 'embeds') and crop_results[0].embeds is not None:
+                embed = crop_results[0].embeds.data[0].cpu().numpy()
+                
+                if athlete_name not in gallery:
+                    gallery[athlete_name] = []
+                gallery[athlete_name].append(embed)
 
     # Average embeddings for each athlete to create a robust reference
     final_gallery = {}
