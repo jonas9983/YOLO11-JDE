@@ -11,7 +11,9 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Loading model for gallery extraction: {model_path}")
     model = YOLO(model_path, task="jde")
     
-    conn = sqlite3.connect(db_path)
+    # Open DB in explicit Read-Only mode for safety
+    db_uri = f"file:{db_path}?mode=ro"
+    conn = sqlite3.connect(db_uri, uri=True)
     cursor = conn.cursor()
     
     # Get all athletes from DB
