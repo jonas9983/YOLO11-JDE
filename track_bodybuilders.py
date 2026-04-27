@@ -3,6 +3,7 @@ import re
 import cv2
 import argparse
 import numpy as np
+import torch
 from ultralytics import YOLO
 from tqdm import tqdm
 
@@ -10,7 +11,10 @@ def extract_id(link):
     match = re.search(r"(?:/d/|id=)([a-zA-Z0-9_-]+)", link)
     return match.group(1) if match else link
 
-def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None):
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None, gallery_path=None):
     # 1. Handle Source (Drive vs Local)
     is_drive = "drive.google.com" in source or len(source) == 33 # Likely an ID
     
@@ -26,9 +30,16 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
             print(f"[ERROR] File not found: {local_input}")
             return
 
-    # 2. Load Model
+    # 2. Load Model and Gallery
     print(f"Loading model: {model_path} on device: {device}")
     model = YOLO(model_path, task="jde")
+    
+    gallery = None
+    if gallery_path and os.path.exists(gallery_path):
+        print(f"Loading athlete gallery: {gallery_path}")
+        gallery = torch.load(gallery_path)
+    
+    track_to_athlete = {} # track_id -> athlete_name
 
     # 3. Process Video
     cap = cv2.VideoCapture(local_input)
@@ -37,12 +48,11 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     fps    = cap.get(cv2.CAP_PROP_FPS)
     total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    # Handle Frame Range
     if start_frame > 0:
         print(f"Seeking to frame {start_frame}...")
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
     
-    if end_frame is None or end_frame > total_video_frames:
+    if end_frame is None or end_frame == 0 or end_frame > total_video_frames:
         end_frame = total_video_frames
     
     num_to_process = end_frame - start_frame
@@ -62,7 +72,6 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
             if not success or (count >= num_to_process): 
                 break
 
-            # Track using the JDE embeddings
             results = model.track(
                 source=frame, 
                 imgsz=imgsz, 
@@ -73,9 +82,48 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                 verbose=False
             )
             
-            # This will plot class names (e.g., 'Cbum') + ID if the model was trained with them
-            annotated_frame = results[0].plot(labels=True, conf=True) 
-            out.write(annotated_frame)
+            if len(results) > 0:
+                result = results[0]
+                
+                # Perform Gallery Matching for new tracks
+                if gallery and hasattr(result, 'boxes') and result.boxes.id is not None:
+                    ids = result.boxes.id.cpu().numpy().astype(int)
+                    embeds = result.embeds.cpu().numpy()
+                    
+                    for i, track_id in enumerate(ids):
+                        if track_id not in track_to_athlete:
+                            # Match current embedding against gallery
+                            best_name = "Unknown"
+                            best_sim = 0.6 # Threshold
+                            
+                            for athlete_name, ref_embed in gallery.items():
+                                sim = cosine_similarity(embeds[i], ref_embed)
+                                if sim > best_sim:
+                                    best_sim = sim
+                                    best_name = athlete_name
+                            
+                            track_to_athlete[track_id] = f"{best_name} (ID:{track_id})"
+                
+                # Manual Annotation to show Athlete Names
+                annotated_frame = frame.copy()
+                if hasattr(result, 'boxes') and result.boxes.id is not None:
+                    boxes = result.boxes.xyxy.cpu().numpy()
+                    ids = result.boxes.id.cpu().numpy().astype(int)
+                    
+                    for i, box in enumerate(boxes):
+                        track_id = ids[i]
+                        label = track_to_athlete.get(track_id, f"ID:{track_id}")
+                        
+                        # Draw box
+                        cv2.rectangle(annotated_frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 255, 0), 2)
+                        # Draw label
+                        cv2.putText(annotated_frame, label, (int(box[0]), int(box[1]) - 10), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                
+                out.write(annotated_frame)
+            else:
+                out.write(frame)
+                
             pbar.update(1)
             count += 1
 
@@ -93,6 +141,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="0", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
     parser.add_argument("--start-frame", type=int, default=0, help="Frame to start from")
     parser.add_argument("--end-frame", type=int, default=None, help="Frame to end at")
+    parser.add_argument("--gallery", type=str, default=None, help="Path to athlete_gallery.pt")
     
     args = parser.parse_args()
-    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame)
+    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame, args.gallery)

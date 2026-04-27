@@ -1,0 +1,73 @@
+import os
+import sqlite3
+import torch
+import numpy as np
+from pathlib import Path
+from tqdm import tqdm
+from ultralytics import YOLO
+import cv2
+
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt"):
+    print(f"Loading model for gallery extraction: {model_path}")
+    model = YOLO(model_path, task="jde")
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Get all athletes from DB
+    cursor.execute("SELECT id, name FROM id_mapping")
+    athletes = cursor.fetchall()
+    id_to_name = {str(a[0]): a[1] for a in athletes}
+    
+    gallery = {} # name -> list of embeddings
+    
+    dataset_path = Path(dataset_dir)
+    img_dir = dataset_path / "train" / "images"
+    
+    if not img_dir.exists():
+        print(f"Error: {img_dir} not found!")
+        return
+
+    print("Extracting reference embeddings from training set...")
+    images = list(img_dir.glob("*.jpg"))
+    
+    # Process images and group by athlete ID (filename starts with ID_)
+    for img_path in tqdm(images[:1000]): # Limit to first 1000 for speed, usually enough
+        filename = img_path.name
+        athlete_id = filename.split('_')[0]
+        
+        if athlete_id not in id_to_name:
+            continue
+            
+        athlete_name = id_to_name[athlete_id]
+        
+        # Run inference to get embedding
+        results = model.predict(img_path, imgsz=1280, verbose=False)
+        
+        if len(results) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
+            # Take the largest detection (assuming it's our athlete)
+            embed = results[0].embeds[0].cpu().numpy()
+            
+            if athlete_name not in gallery:
+                gallery[athlete_name] = []
+            gallery[athlete_name].append(embed)
+
+    # Average embeddings for each athlete to create a robust reference
+    final_gallery = {}
+    for name, embeds in gallery.items():
+        final_gallery[name] = np.mean(embeds, axis=0)
+        
+    print(f"Gallery created for {len(final_gallery)} athletes.")
+    torch.save(final_gallery, output_path)
+    print(f"Saved gallery to {output_path}")
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, required=True)
+    parser.add_argument("--dataset", type=str, required=True)
+    parser.add_argument("--db", type=str, required=True)
+    parser.add_argument("--output", type=str, default="athlete_gallery.pt")
+    args = parser.parse_args()
+    
+    create_gallery(args.model, args.dataset, args.db, args.output)

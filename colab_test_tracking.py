@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V7 - FULL VIDEO OR RANGE) ===
+# === COLAB TRACKING SCRIPT (V8 - ATHLETE NAMES) ===
 # 1. Select 'T4 GPU' Accelerator
 # 2. Mount your Google Drive
 # 3. Paste, update PATHS, and run!
@@ -18,7 +18,6 @@ BRANCH = "feat/multi-gpu-training"
 
 # --- FRAME RANGE SELECTION ---
 # Set both to 0 to process the WHOLE video!
-# Example for a specific range: 1800 to 2400
 START_FRAME = 0 
 END_FRAME = 0   
 
@@ -35,15 +34,30 @@ os.environ["PYTHONPATH"] = f"{os.getcwd()}:{os.environ.get('PYTHONPATH', '')}"
 # --- 4. DEPENDENCIES ---
 print("Installing dependencies...")
 !pip install -r requirements.txt --quiet
-!pip install --upgrade gdown mlflow --quiet
+!pip install --upgrade gdown mlflow pytorch-metric-learning --quiet
 
-# --- 5. PREPARE WEIGHTS ---
+# --- 5. PREPARE WEIGHTS & DATASET ---
 print("Unzipping weights...")
 !mkdir -p /content/test_weights
 !unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/
 MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
 
-# --- 6. CODEC FIX & EXTRACTION (WITH RESIZING) ---
+# We need the dataset images and DB to create the athlete name gallery
+print("Preparing dataset for gallery creation...")
+# Assuming your dataset zip contains 'ifbb_jde' folder with 'train/images' and 'dataset_builder.db'
+# Update this path if your dataset is stored elsewhere!
+DATASET_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/ifbb_jde_dataset.zip" 
+!mkdir -p /content/dataset
+!unzip -qo "{DATASET_ZIP}" -d /content/dataset/
+
+# --- 6. CREATE ATHLETE GALLERY (THE MAGIC PART) ---
+print("\n--- CREATING ATHLETE GALLERY ---")
+!python ifbb/create_gallery.py --model "{MODEL_PATH}" \
+                               --dataset "/content/dataset/ifbb_jde" \
+                               --db "/content/dataset/ifbb_jde/dataset_builder.db" \
+                               --output "athlete_gallery.pt"
+
+# --- 7. CODEC FIX & EXTRACTION (WITH RESIZING) ---
 print("\n--- PREPARING VIDEO ---")
 # Using scale=1920:1080 to make it MUCH faster to process and decode!
 if START_FRAME == 0 and END_FRAME == 0:
@@ -56,17 +70,17 @@ else:
     DURATION_SEC = (END_FRAME - START_FRAME) / FPS
     !ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v libx264 -preset ultrafast -crf 23 test_segment.mp4
 
-# --- 7. RUN TRACKING ---
+# --- 8. RUN TRACKING WITH NAMES ---
 print("\n--- STARTING TRACKING ---")
-# Running the tracking on the 1080p version
 !python track_bodybuilders.py --model "{MODEL_PATH}" \
                              --source "test_segment.mp4" \
                              --output "tracked_result.mp4" \
                              --conf 0.3 \
                              --imgsz 1280 \
-                             --device 0
+                             --device 0 \
+                             --gallery "athlete_gallery.pt"
 
-# --- 8. SAVE OUTPUT BACK TO DRIVE ---
+# --- 9. SAVE OUTPUT BACK TO DRIVE ---
 print("\n--- SAVING RESULT TO DRIVE ---")
 !mkdir -p "/content/drive/MyDrive/YOLO11_Results/"
 if os.path.exists("tracked_result.mp4"):
