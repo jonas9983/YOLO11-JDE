@@ -12,7 +12,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     model = YOLO(model_path, task="jde")
     
     # Open DB in explicit Read-Only mode for safety
-    db_uri = f"file:{db_path}?mode=ro"
+    db_uri = f"{Path(db_path).absolute().as_uri()}?mode=ro"
     conn = sqlite3.connect(db_uri, uri=True)
     cursor = conn.cursor()
     
