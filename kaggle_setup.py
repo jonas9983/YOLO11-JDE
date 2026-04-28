@@ -230,6 +230,7 @@ else:
     resume_cmd = ""
     amp_cmd = "--amp" 
 
+# CRITICAL: AMP is False to prevent NaN issues on Kaggle T4
 !python train.py --data datasets/ifbb_jde/ifbb_jde.yaml \
                 --project ifbb_jde \
                 --name bodybuilding_model \
@@ -242,9 +243,9 @@ else:
                 {amp_cmd} \
                 {resume_cmd}
 
-# --- 6. AUTO-ZIP RESULTS ---
+# --- 6. AUTO-ZIP RESULTS FOR DOWNLOAD ---
 print("\n--- ZIPPING RESULTS FOR DOWNLOAD ---")
 %cd /kaggle/working
 !zip -rq mlflow_results.zip YOLO11-JDE/runs/mlflow
 !zip -rq weights_results.zip YOLO11-JDE/ifbb_jde/bodybuilding_model/weights
-print("Done!")
+print("Done! Look for 'mlflow_results.zip' and 'weights_results.zip' in the Output tab.")
