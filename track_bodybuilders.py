@@ -36,7 +36,8 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
         gallery = torch.load(gallery_path)
     
     track_to_athlete = {} # track_id -> athlete_name
-    tracking_logs = [] # To save as CSV
+    track_votes = {}      # track_id -> {athlete_name: cumulative_similarity}
+    tracking_logs = []    # To save as CSV
 
     # 3. Process Video
     cap = cv2.VideoCapture(local_input)
@@ -97,32 +98,59 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                     track_embeds[t.track_id] = feat[-1]
                     
                     for i, track_id in enumerate(ids):
-                        best_name = "Unknown"
-                        best_sim = 0.0
+                        matches = [] # List of (sim, name)
                         
                         if track_id in track_embeds and gallery:
                             embed = track_embeds[track_id]
+                            # Normalize embedding for consistent cosine similarity
+                            embed = embed / (np.linalg.norm(embed) + 1e-6)
+                            
                             for athlete_name, ref_embed in gallery.items():
                                 sim = cosine_similarity(embed, ref_embed)
-                                if sim > best_sim:
-                                    best_sim = sim
-                                    best_name = athlete_name
+                                matches.append((sim, athlete_name))
                             
-                            # Lowered threshold for labeling visibility
-                            if best_sim > 0.25:
-                                track_to_athlete[track_id] = f"{best_name}"
+                            # Sort by similarity descending
+                            matches = sorted(matches, key=lambda x: x[0], reverse=True)
+                            
+                            if matches:
+                                best_sim, best_name = matches[0]
+                                second_sim, second_name = matches[1] if len(matches) > 1 else (0.0, "None")
+                                
+                                # --- NEW: TEMPORAL VOTING SYSTEM ---
+                                if track_id not in track_votes:
+                                    track_votes[track_id] = {}
+                                
+                                # Accumulate similarity as "votes" for this athlete
+                                if best_name not in track_votes[track_id]:
+                                    track_votes[track_id][best_name] = 0.0
+                                track_votes[track_id][best_name] += best_sim
+                                
+                                # The "True Identity" is the athlete with the most cumulative confidence
+                                winner_name = max(track_votes[track_id].items(), key=lambda x: x[1])[0]
+                                
+                                # Only assign if the cumulative confidence is significant
+                                # (e.g., requires ~3 frames of high confidence consistency)
+                                if track_votes[track_id][winner_name] > 1.5: 
+                                    track_to_athlete[track_id] = f"{winner_name}"
+                                else:
+                                    if track_id not in track_to_athlete:
+                                        track_to_athlete[track_id] = f"ID:{track_id}"
+                                
+                                # Log data for CSV
+                                tracking_logs.append({
+                                    "frame": frame_num,
+                                    "track_id": track_id,
+                                    "winner_match": winner_name,
+                                    "best_match": best_name,
+                                    "best_sim": round(float(best_sim), 4),
+                                    "second_match": second_name,
+                                    "second_sim": round(float(second_sim), 4),
+                                    "margin": round(float(best_sim - second_sim), 4),
+                                    "bbox": boxes[i].tolist()
+                                })
                             else:
                                 if track_id not in track_to_athlete:
                                     track_to_athlete[track_id] = f"ID:{track_id}"
-                            
-                            # Log data for CSV
-                            tracking_logs.append({
-                                "frame": frame_num,
-                                "track_id": track_id,
-                                "best_match": best_name,
-                                "similarity": round(float(best_sim), 4),
-                                "bbox": boxes[i].tolist()
-                            })
                         else:
                             # If no embedding found, just ensure the ID is shown
                             if track_id not in track_to_athlete:

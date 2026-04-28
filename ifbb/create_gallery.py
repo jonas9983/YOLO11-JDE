@@ -101,7 +101,12 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     # Average embeddings for each athlete to create a robust reference
     final_gallery = {}
     for name, embeds in gallery.items():
-        final_gallery[name] = np.mean(embeds, axis=0)
+        # L2-normalize each embedding before averaging
+        normalized_embeds = [e / np.linalg.norm(e) for e in embeds]
+        # Mean of normalized embeddings
+        avg_embed = np.mean(normalized_embeds, axis=0)
+        # Re-normalize the final average vector to ensure it lies on the unit hypersphere
+        final_gallery[name] = avg_embed / np.linalg.norm(avg_embed)
         
     print(f"Gallery created for {len(final_gallery)} athletes.")
     torch.save(final_gallery, output_path)
