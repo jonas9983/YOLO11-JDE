@@ -56,61 +56,64 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     images = list(img_dir.glob("*.jpg"))
     print(f"Total images found: {len(images)}")
     
-    # Process images and group by athlete ID (filename starts with ID_)
-    for img_path in tqdm(images):
+    # --- 1. GROUP FILES FIRST (NO AI YET) ---
+    import random
+    athlete_files = {}
+    
+    for img_path in images:
         filename = img_path.name
         athlete_id = filename.split('_')[0]
         
-        if athlete_id not in id_to_name:
-            continue
+        if athlete_id in id_to_name:
+            athlete_name = id_to_name[athlete_id]
             
-        athlete_name = id_to_name[athlete_id]
-
-        # If we have a contest filter, only use images from that contest
-        # We check if the image path contains the contest name (e.g., inside a folder named after the contest)
-        if contest_name and contest_name.upper() not in img_path.as_posix().upper():
-            continue
-        
-        # 1. Load the raw image
-        img_cv = cv2.imread(str(img_path))
-        if img_cv is None: continue
-        
-        # Run prediction on the FULL raw image (matches the tracker's perspective)
-        results = model.predict(img_path, imgsz=imgsz, device=device, verbose=False, classes=[0])
-        
-        # Ensure we found at least one person and the model generated embeddings
-        if len(results) > 0 and len(results[0].boxes) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
-            boxes = results[0].boxes.xyxy.cpu().numpy()
-            
-            # This is a list of ALL embeddings for every person on stage
-            # Use .data to safely access raw tensor
-            embeds = results[0].embeds.data.cpu().numpy() 
-            
-            # 2. Find the index of the LARGEST bounding box (the main athlete)
-            areas = [(box[2]-box[0]) * (box[3]-box[1]) for box in boxes]
-            largest_idx = np.argmax(areas)
-            
-            # 3. CRITICAL: Extract the exact embedding that matches that specific box!
-            if largest_idx < len(embeds):
-                embed = embeds[largest_idx]
+            # Contest filter
+            if contest_name and contest_name.upper() not in img_path.as_posix().upper():
+                continue
                 
-                if athlete_name not in gallery:
-                    gallery[athlete_name] = []
-                gallery[athlete_name].append(embed)
+            if athlete_name not in athlete_files:
+                athlete_files[athlete_name] = []
+            athlete_files[athlete_name].append(img_path)
 
-    # Average embeddings for each athlete to create a robust reference
+    # --- 2. FAST AI PROCESSING ---
     final_gallery = {}
-    for name, embeds in gallery.items():
-        # L2-normalize each embedding before averaging
-        normalized_embeds = [e / np.linalg.norm(e) for e in embeds]
-        # Mean of normalized embeddings
-        avg_embed = np.mean(normalized_embeds, axis=0)
-        # Re-normalize the final average vector to ensure it lies on the unit hypersphere
-        final_gallery[name] = avg_embed / np.linalg.norm(avg_embed)
+    print(f"Processing {len(athlete_files)} athletes...")
+    
+    for name, paths in tqdm(athlete_files.items(), desc="Athletes"):
+        # Shuffle to ensure we get diverse poses (front, back, side)
+        random.shuffle(paths) 
+        final_gallery[name] = []
         
+        for img_path in paths:
+            # THE MAGIC SPEEDUP: Stop as soon as we get 20 good embeddings!
+            if len(final_gallery[name]) >= 20:
+                break
+                
+            # Load the raw image
+            img_cv = cv2.imread(str(img_path))
+            if img_cv is None: continue
+            
+            # Run prediction on the FULL raw image
+            results = model.predict(img_path, imgsz=imgsz, device=device, verbose=False, classes=[0])
+            
+            # Ensure we found at least one person and the model generated embeddings
+            if len(results) > 0 and len(results[0].boxes) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
+                boxes = results[0].boxes.xyxy.cpu().numpy()
+                embeds = results[0].embeds.data.cpu().numpy() 
+                
+                # Find the index of the LARGEST bounding box (the main athlete)
+                areas = [(box[2]-box[0]) * (box[3]-box[1]) for box in boxes]
+                largest_idx = np.argmax(areas)
+                
+                if largest_idx < len(embeds):
+                    embed = embeds[largest_idx]
+                    # Normalize and save immediately
+                    embed = embed / (np.linalg.norm(embed) + 1e-6)
+                    final_gallery[name].append(embed)
+
     print(f"Gallery created for {len(final_gallery)} athletes.")
     torch.save(final_gallery, output_path)
-    print(f"Saved gallery to {output_path}")
+    print(f"Saved multi-pose gallery to {output_path}")
 
 if __name__ == "__main__":
     import argparse

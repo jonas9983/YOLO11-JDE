@@ -98,6 +98,23 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                     track_embeds[t.track_id] = feat[-1]
                     
                     for i, track_id in enumerate(ids):
+                        
+                        # --- 1. THE LOCK ---
+                        # If we already securely identified this track, skip the math entirely!
+                        if track_id in track_to_athlete and not track_to_athlete[track_id].startswith("ID:"):
+                            tracking_logs.append({
+                                "frame": frame_num,
+                                "track_id": track_id,
+                                "winner_match": track_to_athlete[track_id],
+                                "best_match": track_to_athlete[track_id],
+                                "best_sim": 1.0, # Locked
+                                "second_match": "None",
+                                "second_sim": 0.0,
+                                "margin": 1.0,
+                                "bbox": boxes[i].tolist()
+                            })
+                            continue
+                        
                         matches = [] # List of (sim, name)
                         
                         if track_id in track_embeds and gallery:
@@ -105,9 +122,15 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                             # Normalize embedding for consistent cosine similarity
                             embed = embed / (np.linalg.norm(embed) + 1e-6)
                             
-                            for athlete_name, ref_embed in gallery.items():
-                                sim = cosine_similarity(embed, ref_embed)
-                                matches.append((sim, athlete_name))
+                            for athlete_name, ref_embed_list in gallery.items():
+                                # --- 2. MULTI-POSE MATCHING ---
+                                # Check against ALL saved poses for this athlete and take the highest
+                                best_pose_sim = 0.0
+                                for ref_embed in ref_embed_list:
+                                    sim = cosine_similarity(embed, ref_embed)
+                                    if sim > best_pose_sim:
+                                        best_pose_sim = sim
+                                matches.append((best_pose_sim, athlete_name))
                             
                             # Sort by similarity descending
                             matches = sorted(matches, key=lambda x: x[0], reverse=True)
@@ -116,22 +139,27 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                 best_sim, best_name = matches[0]
                                 second_sim, second_name = matches[1] if len(matches) > 1 else (0.0, "None")
                                 
-                                # --- NEW: TEMPORAL VOTING SYSTEM ---
+                                # --- 3. TEMPORAL VOTING & LOCKING ---
                                 if track_id not in track_votes:
                                     track_votes[track_id] = {}
                                 
-                                # Accumulate similarity as "votes" for this athlete
-                                if best_name not in track_votes[track_id]:
-                                    track_votes[track_id][best_name] = 0.0
-                                track_votes[track_id][best_name] += best_sim
+                                # Only count a vote if the match is ACTUALLY good (>0.75)
+                                if best_sim > 0.75:
+                                    if best_name not in track_votes[track_id]:
+                                        track_votes[track_id][best_name] = 0
+                                    track_votes[track_id][best_name] += 1 # 1 frame = 1 vote
                                 
-                                # The "True Identity" is the athlete with the most cumulative confidence
-                                winner_name = max(track_votes[track_id].items(), key=lambda x: x[1])[0]
-                                
-                                # Only assign if the cumulative confidence is significant
-                                # (e.g., requires ~3 frames of high confidence consistency)
-                                if track_votes[track_id][winner_name] > 1.5: 
-                                    track_to_athlete[track_id] = f"{winner_name}"
+                                winner_name = "None"
+                                if len(track_votes[track_id]) > 0:
+                                    winner_name = max(track_votes[track_id].items(), key=lambda x: x[1])[0]
+                                    votes = track_votes[track_id][winner_name]
+                                    
+                                    # If they get 30 solid frames of recognition, LOCK IT FOREVER
+                                    if votes >= 30: 
+                                        track_to_athlete[track_id] = f"{winner_name}"
+                                        print(f"[TRACKER] Locked Identity for Track {track_id} -> {winner_name}")
+                                    else:
+                                        track_to_athlete[track_id] = f"ID:{track_id} (Voting {votes}/30)"
                                 else:
                                     if track_id not in track_to_athlete:
                                         track_to_athlete[track_id] = f"ID:{track_id}"
