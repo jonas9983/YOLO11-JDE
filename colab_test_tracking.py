@@ -36,6 +36,7 @@ FORCE_REBUILD_GALLERY = True
 # --- FRAME RANGE SELECTION ---
 START_FRAME = 2000 
 END_FRAME = 15000
+IMGSZ = 960
 
 # --- 3. REPO SETUP ---
 %cd /content
@@ -85,7 +86,7 @@ else:
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images", quiet=True)
     
     filter_cmd = f"--contest {CONTEST_FILTER}" if CONTEST_FILTER else ""
-    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda {filter_cmd}', "Creating Gallery")
+    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} {filter_cmd}', "Creating Gallery")
     !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
 
 # --- 7. PERSISTENT VIDEO EXTRACTION ---
@@ -105,7 +106,7 @@ else:
     run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 "{LOCAL_VIDEO}"', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
-run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz 1280 --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
+run_step(f'python track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz {IMGSZ} --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
 OUTPUT_NAME = f"tracking_{START_FRAME}_{END_FRAME}"

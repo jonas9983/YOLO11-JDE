@@ -7,7 +7,7 @@ from tqdm import tqdm
 from ultralytics import YOLO
 import cv2
 
-def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None):
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -17,6 +17,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Dataset Dir: {dataset_dir}")
     print(f"DB Path: {db_path}")
     print(f"Contest Filter: {contest_name if contest_name else 'ALL'}")
+    print(f"Image Size: {imgsz}")
     
     if not os.path.exists(db_path):
         print(f"ERROR: Database file not found at {db_path}")
@@ -75,7 +76,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         if img_cv is None: continue
         
         # Run prediction on the FULL raw image (matches the tracker's perspective)
-        results = model.predict(img_path, imgsz=1280, device=device, verbose=False, classes=[0])
+        results = model.predict(img_path, imgsz=imgsz, device=device, verbose=False, classes=[0])
         
         # Ensure we found at least one person and the model generated embeddings
         if len(results) > 0 and len(results[0].boxes) > 0 and hasattr(results[0], 'embeds') and results[0].embeds is not None:
@@ -115,6 +116,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="athlete_gallery.pt")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--contest", type=str, default=None, help="Filter images by contest name in path")
+    parser.add_argument("--imgsz", type=int, default=960, help="Image size for model inference")
     args = parser.parse_args()
     
-    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest)
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz)
