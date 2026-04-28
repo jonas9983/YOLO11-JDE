@@ -1,20 +1,27 @@
-# === KAGGLE SETUP SCRIPT (V24 - PERSISTENT STATE FIX) ===
+# === KAGGLE SETUP SCRIPT (V25 - MASTER ZIP & SYNC FIX) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
 
 import os
-os.environ["WANDB_MODE"] = "online"
 import re
 import random
 import shutil
+import zipfile
 import hashlib
 from collections import defaultdict
 from pathlib import Path
 
 # --- 1. CONFIGURATION ---
+# Path to your master zip or folder on Kaggle
 KAGGLE_DATASET_FOLDER = None 
+
+# Google Drive Link to your MASTER ZIP (ifbb_jde_master.zip)
 DRIVE_LINK = "https://drive.google.com/drive/folders/1tvndv5V1O2RI_04-BhPIWdIpa06nd_gP?usp=sharing" 
+
+# OPTIONAL: GDrive folder path to sync weights (requires gcsfuse or similar, or just use for final copy)
+SYNC_DIR = None 
+
 RESUME_TRAINING = False 
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
 BRANCH = "feat/multi-gpu-training"
@@ -47,6 +54,20 @@ def extract_id(link):
     match = re.search(r"(?:/d/|id=|folders/)([a-zA-Z0-9_-]+)", link)
     return match.group(1) if match else link
 
+def recursive_unzip(zip_path, extract_to):
+    """Unzip a file, and if it contains more zips, unzip those too."""
+    with zipfile.ZipFile(zip_path, 'r') as z:
+        z.extractall(extract_to)
+    
+    # Check for nested zips
+    nested_zips = list(Path(extract_to).rglob("*.zip"))
+    if nested_zips:
+        print(f"  [NESTED] Found {len(nested_zips)} nested zips. Extracting...")
+        for nz in nested_zips:
+            with zipfile.ZipFile(nz, 'r') as z:
+                z.extractall(extract_to)
+            nz.unlink() # Remove nested zip after extraction
+
 # Check if data already exists AND is valid (Force check for 6th column)
 data_ready = False
 check_path = Path("datasets/ifbb_jde/train/labels")
@@ -72,31 +93,48 @@ if not data_ready:
     else:
         print("Downloading dataset from Google Drive...")
         if "folder" in DRIVE_LINK or "drive.google.com/drive/folders/" in DRIVE_LINK:
+            print("Detected Google Drive Folder Link. Downloading contents...")
             !gdown --folder "{DRIVE_LINK}" -O /tmp/jde_downloads
             contest_zips = list(Path("/tmp/jde_downloads").rglob("*.zip"))
         else:
+            print("Detected Single File Link. Downloading master zip...")
             ZIP_ID = extract_id(DRIVE_LINK)
-            !gdown {ZIP_ID} -O /tmp/jde_downloads/dataset.zip
-            contest_zips = [Path("/tmp/jde_downloads/dataset.zip")]
+            !gdown {ZIP_ID} -O /tmp/jde_downloads/master_dataset.zip
+            contest_zips = [Path("/tmp/jde_downloads/master_dataset.zip")]
     
-    print(f"Found {len(contest_zips)} contest zips. Unzipping...")
+    print(f"Found {len(contest_zips)} archive(s). Unzipping recursively...")
+    
+    if len(contest_zips) == 0:
+        print("[CRITICAL ERROR] No zip files found!")
+        import sys; sys.exit(1)
+        
     for z in contest_zips:
-        !unzip -qo "{str(z)}" -d /tmp/jde_raw/
+        recursive_unzip(z, "/tmp/jde_raw/")
         
     print("Splitting Data and Injecting JDE IDs...")
     for p in ["train/images", "train/labels", "val/images", "val/labels"]:
         os.makedirs(f"datasets/ifbb_jde/{p}", exist_ok=True)
     
+    # Robust search for images anywhere inside the extracted folders
     all_images = list(Path("/tmp/jde_raw").rglob("*.jpg")) + list(Path("/tmp/jde_raw").rglob("*.png")) + list(Path("/tmp/jde_raw").rglob("*.jpeg"))
     
+    if len(all_images) == 0:
+        print("[CRITICAL ERROR] No images found inside the extracted zip files!")
+        !ls -R /tmp/jde_raw | head -n 20
+        import sys; sys.exit(1)
+
     random.shuffle(all_images)
     seen_hashes = set()
     athlete_images = defaultdict(list)
     duplicates_skipped = 0
 
     for img_path in all_images:
-        with open(img_path, "rb") as f:
-            file_hash = hashlib.md5(f.read()).hexdigest()
+        # Deduplication using MD5
+        try:
+            with open(img_path, "rb") as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
+        except:
+            continue
         
         if file_hash in seen_hashes:
             duplicates_skipped += 1
@@ -106,9 +144,9 @@ if not data_ready:
         athlete_id = img_path.name.split('_')[0]
         label_name = f"{img_path.stem}.txt"
         potential_labels = [
-            img_path.parent.parent / "labels" / label_name,
-            img_path.parent / label_name,
-            Path(str(img_path.parent).replace("images", "labels")) / label_name
+            img_path.parent.parent / "labels" / label_name, 
+            img_path.parent / label_name,                   
+            Path(str(img_path.parent).replace("images", "labels")) / label_name 
         ]
         
         label_path = None
@@ -143,6 +181,7 @@ if not data_ready:
             for line in lines:
                 parts = line.strip().split()
                 if len(parts) >= 5:
+                    # Append the JDE tracker ID as the 6th column
                     new_lines.append(f"{parts[0]} {parts[1]} {parts[2]} {parts[3]} {parts[4]} {idx}\n")
             
             dest_label = f"datasets/ifbb_jde/{split}/labels/{label_path.name}"
@@ -151,10 +190,13 @@ if not data_ready:
             valid_pairs += 1
             
     print(f"Processed {valid_pairs} image/label pairs with JDE IDs ({len(unique_ids)} unique athletes).")
+    if duplicates_skipped > 0:
+        print(f"Skipped {duplicates_skipped} duplicate images.")
             
     data_yaml = f"path: /kaggle/working/YOLO11-JDE/datasets/ifbb_jde\ntrain: train/images\nval: val/images\nnc: 1\nnames: ['person']\n"
     with open("datasets/ifbb_jde/ifbb_jde.yaml", "w") as f: f.write(data_yaml)
 
+    # Clean up to save disk space
     shutil.rmtree("/tmp/jde_downloads", ignore_errors=True)
     shutil.rmtree("/tmp/jde_raw", ignore_errors=True)
 
@@ -176,7 +218,17 @@ num_gpus = torch.cuda.device_count()
 batch_size = 16 * max(1, num_gpus)
 device = ",".join([str(i) for i in range(num_gpus)]) if num_gpus > 0 else "cpu"
 
-print(f"\n--- STARTING CORRECT JDE TRAINING ON {device.upper()} ---")
+print(f"\n--- STARTING TRAINING ON {device.upper()} (GPUs: {num_gpus}) ---")
+
+RESUME_WEIGHTS = "ifbb_jde/bodybuilding_model/weights/last.pt" 
+sync_cmd = f"--sync_dir {SYNC_DIR}" if SYNC_DIR else ""
+
+if RESUME_TRAINING:
+    resume_cmd = f"--resume {RESUME_WEIGHTS}"
+    amp_cmd = "" 
+else:
+    resume_cmd = ""
+    amp_cmd = "--amp" 
 
 !python train.py --data datasets/ifbb_jde/ifbb_jde.yaml \
                 --project ifbb_jde \
@@ -185,8 +237,10 @@ print(f"\n--- STARTING CORRECT JDE TRAINING ON {device.upper()} ---")
                 --batch {batch_size} \
                 --imgsz 960 \
                 --device {device} \
-                --amp \
-                {"--resume True" if RESUME_TRAINING else ""}
+                --patience 15 \
+                {sync_cmd} \
+                {amp_cmd} \
+                {resume_cmd}
 
 # --- 6. AUTO-ZIP RESULTS ---
 print("\n--- ZIPPING RESULTS FOR DOWNLOAD ---")

@@ -165,7 +165,24 @@ class IFBBJDEDatasetBuilder:
         print(f"  [SUCCESS] Zipped {processed_imgs} valid athlete images to {final_zip.name}")
         return True
 
-    def run(self, years):
+    def create_master_zip(self, master_zip_name="ifbb_jde_master.zip"):
+        """Bundle all individual contest zips into one master zip."""
+        master_zip_path = self.output_dir.parent / master_zip_name
+        print(f"\n--- CREATING MASTER ZIP: {master_zip_path.name} ---")
+        
+        all_zips = list(self.output_dir.glob("*.zip"))
+        if not all_zips:
+            print("  [WARNING] No contest zips found to bundle.")
+            return
+
+        with zipfile.ZipFile(master_zip_path, 'w', zipfile.ZIP_DEFLATED) as master:
+            for z in tqdm(all_zips, desc="Bundling ZIPs"):
+                master.write(z, arcname=z.name)
+        
+        print(f"  [SUCCESS] Master zip created at {master_zip_path.absolute()}")
+        return master_zip_path
+
+    def run(self, years, bundle_master=False):
         if not self.db_path.exists():
             print(f"[CRITICAL ERROR] Database file not found at: {self.db_path.absolute()}")
             return
@@ -203,12 +220,16 @@ class IFBBJDEDatasetBuilder:
         print(f"Processed: {processed_contests}")
         print(f"Skipped (already done): {skipped_contests}")
 
+        if bundle_master:
+            self.create_master_zip()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--years", default="2024,2025,2026")
+    parser.add_argument("--master_zip", action="store_true", help="Bundle all contest zips into one master zip")
     args = parser.parse_args()
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    IFBBJDEDatasetBuilder(args.source, args.output, device=device).run(args.years.split(','))
+    IFBBJDEDatasetBuilder(args.source, args.output, device=device).run(args.years.split(','), bundle_master=args.master_zip)

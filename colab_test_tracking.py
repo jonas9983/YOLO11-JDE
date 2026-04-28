@@ -1,4 +1,4 @@
-# === COLAB TRACKING SCRIPT (V17 - TRUE PERSISTENCE) ===
+# === COLAB TRACKING SCRIPT (V18 - DIRECT WEIGHTS & REBUILD GALLERY) ===
 import os
 import sys
 import subprocess
@@ -10,7 +10,8 @@ if not os.path.exists("/content/drive"):
     drive.mount('/content/drive')
 
 # --- 2. CONFIGURATION (UPDATE THESE!) ---
-WEIGHTS_ZIP = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/results/2025_EVLS_PRAGUE_PRO/weights_results.zip"
+# Point directly to your best.pt file in Google Drive!
+WEIGHTS_PT = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/results/2025_EVLS_PRAGUE_PRO/weights/best.pt"
 TEST_VIDEO = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/Videos/2025_EVLS_Prague/OPEN BODYBUILDING - EVLS PRAG PRO 2025 (FINALE IN 4K).mp4"
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
 BRANCH = "feat/multi-gpu-training" 
@@ -18,6 +19,7 @@ BRANCH = "feat/multi-gpu-training"
 # PATHS IN DRIVE
 DRIVE_BASE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training"
 DB_FILE = f"{DRIVE_BASE}/dataset_builder.db"
+# You need the images zip of the competition to rebuild the gallery
 DATASET_IMAGES_ZIP = f"{DRIVE_BASE}/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
 DRIVE_GALLERY_PATH = f"{DRIVE_BASE}/athlete_gallery.pt"
 
@@ -28,8 +30,8 @@ os.makedirs(SEGMENT_DIR, exist_ok=True)
 
 CONTEST_FILTER = "Prague_Pro" 
 
-# Set to False to use the gallery already in your Drive
-FORCE_REBUILD_GALLERY = False
+# Set to True because your gallery is outdated and needs to be rebuilt with the new model
+FORCE_REBUILD_GALLERY = True
 
 # --- FRAME RANGE SELECTION ---
 START_FRAME = 2000 
@@ -69,10 +71,9 @@ def run_step(cmd, msg, quiet=False):
     if process.returncode != 0:
         raise RuntimeError(f"{msg} failed.")
 
-run_step(f'mkdir -p /content/test_weights && unzip -qo "{WEIGHTS_ZIP}" -d /content/test_weights/', "Unzipping Weights", quiet=True)
 run_step(f'mkdir -p /content/dataset/ifbb_jde && cp "{DB_FILE}" /content/dataset/ifbb_jde/dataset_builder.db', "Copying Database", quiet=True)
 
-MODEL_PATH = "/content/test_weights/YOLO11-JDE/ifbb_jde/prague_pro_final2/weights/best.pt"
+MODEL_PATH = WEIGHTS_PT
 
 # --- 6. CREATE OR LOAD ATHLETE GALLERY ---
 if os.path.exists(DRIVE_GALLERY_PATH) and not FORCE_REBUILD_GALLERY:
