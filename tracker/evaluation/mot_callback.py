@@ -15,6 +15,10 @@ TRACKER_MAP = {"bytetrack": BYTETracker, "botsort": BOTSORT, "smiletrack": SMILE
 
 # TODO: CALLBACKS DO NOT WORK WHEN USING DDP
 def mot_eval(validator, period=1):
+    # DDP Safeguard: Only run on the main process (rank 0 or -1 if not using DDP)
+    if int(os.environ.get("LOCAL_RANK", -1)) not in [-1, 0]:
+        return
+
     is_train = validator.training   # Check if the model is being trained
     if is_train:
         if validator.epoch % period != 0 or validator.epoch == 1:
