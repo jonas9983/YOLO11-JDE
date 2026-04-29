@@ -7,7 +7,7 @@ from tqdm import tqdm
 from ultralytics import YOLO
 import cv2
 
-def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960):
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960, division=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -17,6 +17,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Dataset Dir: {dataset_dir}")
     print(f"DB Path: {db_path}")
     print(f"Contest Filter: {contest_name if contest_name else 'ALL'}")
+    print(f"Division Filter: {division if division else 'ALL'}")
     print(f"Image Size: {imgsz}")
     
     if not os.path.exists(db_path):
@@ -31,8 +32,27 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     conn = sqlite3.connect(db_uri, uri=True)
     cursor = conn.cursor()
     
-    # Get all athletes from DB
-    cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
+    # Get all athletes from DB with optional division filter
+    if division:
+        # Note: We use dataset_builder.db for id_mapping, but it doesn't have division.
+        # However, the user might be using npc_database.db as well.
+        # Wait, create_gallery uses db_path which is usually dataset_builder.db.
+        # Let's check if dataset_builder.db has division.
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='id_mapping'")
+        if cursor.fetchone():
+             # Check if it has division column
+             cursor.execute("PRAGMA table_info(id_mapping)")
+             cols = [c[1] for c in cursor.fetchall()]
+             if 'division' in cols:
+                 cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping WHERE division LIKE ?", (f"%{division}%",))
+             else:
+                 print(f"WARNING: 'division' column not found in id_mapping table. Filtering by division might not work as expected if using dataset_builder.db.")
+                 cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
+        else:
+            cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
+    else:
+        cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
+        
     athletes = cursor.fetchall()
     id_to_name = {str(a[0]): a[1] for a in athletes}
     print(f"Found {len(id_to_name)} athlete mappings in DB.")
@@ -124,7 +144,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="athlete_gallery.pt")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--contest", type=str, default=None, help="Filter images by contest name in path")
+    parser.add_argument("--division", type=str, default=None, help="Filter athletes by division name")
     parser.add_argument("--imgsz", type=int, default=960, help="Image size for model inference")
     args = parser.parse_args()
     
-    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz)
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz, args.division)

@@ -158,11 +158,13 @@ if not data_ready:
         if label_path:
             athlete_images[athlete_id].append((img_path, label_path))
 
-    unique_ids = list(athlete_images.keys())
-    random.shuffle(unique_ids)
+    unique_ids = sorted(list(athlete_images.keys()))
+    # random.shuffle(unique_ids) # REMOVED: Keep mapping stable
     
     val_id_count = max(1, int(len(unique_ids) * 0.10))
-    val_ids = set(unique_ids[:val_id_count])
+    # We still shuffle for the split, but we keep the ID mapping stable
+    val_sample = random.sample(unique_ids, val_id_count)
+    val_ids = set(val_sample)
     athlete_to_idx = {name: i for i, name in enumerate(unique_ids)}
     
     valid_pairs = 0
