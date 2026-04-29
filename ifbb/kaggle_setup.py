@@ -1,4 +1,4 @@
-# === KAGGLE SETUP SCRIPT (V25 - MASTER ZIP & SYNC FIX) ===
+# === KAGGLE SETUP SCRIPT (V26 - SURGICAL DATASET READY) ===
 # 1. Select 'T4 x2' Accelerator in Kaggle
 # 2. Enable 'Internet'
 # 3. RUN THIS SCRIPT!
@@ -13,13 +13,11 @@ from collections import defaultdict
 from pathlib import Path
 
 # --- 1. CONFIGURATION ---
-# Path to your master zip or folder on Kaggle
 KAGGLE_DATASET_FOLDER = None 
 
-# Google Drive Link to your MASTER ZIP (ifbb_jde_master.zip)
-DRIVE_LINK = "https://drive.google.com/drive/folders/1tvndv5V1O2RI_04-BhPIWdIpa06nd_gP?usp=sharing" 
+# UPDATE THIS TO YOUR NEW bodybuilding_jde_master.zip LINK!
+DRIVE_LINK = "https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view?usp=sharing" 
 
-# OPTIONAL: GDrive folder path to sync weights (requires gcsfuse or similar, or just use for final copy)
 SYNC_DIR = None 
 
 RESUME_TRAINING = False 
@@ -55,20 +53,17 @@ def extract_id(link):
     return match.group(1) if match else link
 
 def recursive_unzip(zip_path, extract_to):
-    """Unzip a file, and if it contains more zips, unzip those too."""
     with zipfile.ZipFile(zip_path, 'r') as z:
         z.extractall(extract_to)
     
-    # Check for nested zips
     nested_zips = list(Path(extract_to).rglob("*.zip"))
     if nested_zips:
         print(f"  [NESTED] Found {len(nested_zips)} nested zips. Extracting...")
         for nz in nested_zips:
             with zipfile.ZipFile(nz, 'r') as z:
                 z.extractall(extract_to)
-            nz.unlink() # Remove nested zip after extraction
+            nz.unlink() 
 
-# Check if data already exists AND is valid (Force check for 6th column)
 data_ready = False
 check_path = Path("datasets/ifbb_jde/train/labels")
 if check_path.exists():
@@ -76,7 +71,7 @@ if check_path.exists():
     if first_label:
         with open(first_label[0], "r") as f:
             line = f.readline().split()
-            if len(line) == 6: # Already has the JDE ID!
+            if len(line) == 6: 
                 data_ready = True
                 print("Dataset already exists with JDE IDs. Skipping download.")
 
@@ -115,7 +110,6 @@ if not data_ready:
     for p in ["train/images", "train/labels", "val/images", "val/labels"]:
         os.makedirs(f"datasets/ifbb_jde/{p}", exist_ok=True)
     
-    # Robust search for images anywhere inside the extracted folders
     all_images = list(Path("/tmp/jde_raw").rglob("*.jpg")) + list(Path("/tmp/jde_raw").rglob("*.png")) + list(Path("/tmp/jde_raw").rglob("*.jpeg"))
     
     if len(all_images) == 0:
@@ -129,7 +123,6 @@ if not data_ready:
     duplicates_skipped = 0
 
     for img_path in all_images:
-        # Deduplication using MD5
         try:
             with open(img_path, "rb") as f:
                 file_hash = hashlib.md5(f.read()).hexdigest()
@@ -158,11 +151,11 @@ if not data_ready:
         if label_path:
             athlete_images[athlete_id].append((img_path, label_path))
 
+    # --- CRITICAL FIX: STABLE IDs ---
+    # Sort alphabetically so IDs stay consistent across training runs
     unique_ids = sorted(list(athlete_images.keys()))
-    # random.shuffle(unique_ids) # REMOVED: Keep mapping stable
     
     val_id_count = max(1, int(len(unique_ids) * 0.10))
-    # We still shuffle for the split, but we keep the ID mapping stable
     val_sample = random.sample(unique_ids, val_id_count)
     val_ids = set(val_sample)
     athlete_to_idx = {name: i for i, name in enumerate(unique_ids)}
@@ -183,7 +176,6 @@ if not data_ready:
             for line in lines:
                 parts = line.strip().split()
                 if len(parts) >= 5:
-                    # Append the JDE tracker ID as the 6th column
                     new_lines.append(f"{parts[0]} {parts[1]} {parts[2]} {parts[3]} {parts[4]} {idx}\n")
             
             dest_label = f"datasets/ifbb_jde/{split}/labels/{label_path.name}"
@@ -198,7 +190,6 @@ if not data_ready:
     data_yaml = f"path: /kaggle/working/YOLO11-JDE/datasets/ifbb_jde\ntrain: train/images\nval: val/images\nnc: 1\nnames: ['person']\n"
     with open("datasets/ifbb_jde/ifbb_jde.yaml", "w") as f: f.write(data_yaml)
 
-    # Clean up to save disk space
     shutil.rmtree("/tmp/jde_downloads", ignore_errors=True)
     shutil.rmtree("/tmp/jde_raw", ignore_errors=True)
 
@@ -232,7 +223,6 @@ else:
     resume_cmd = ""
     amp_cmd = "--amp" 
 
-# CRITICAL: AMP is False to prevent NaN issues on Kaggle T4
 !python train.py --data datasets/ifbb_jde/ifbb_jde.yaml \
                 --project ifbb_jde \
                 --name bodybuilding_model \
@@ -245,9 +235,9 @@ else:
                 {amp_cmd} \
                 {resume_cmd}
 
-# --- 6. AUTO-ZIP RESULTS FOR DOWNLOAD ---
+# --- 6. AUTO-ZIP RESULTS ---
 print("\n--- ZIPPING RESULTS FOR DOWNLOAD ---")
 %cd /kaggle/working
 !zip -rq mlflow_results.zip YOLO11-JDE/runs/mlflow
 !zip -rq weights_results.zip YOLO11-JDE/ifbb_jde/bodybuilding_model/weights
-print("Done! Look for 'mlflow_results.zip' and 'weights_results.zip' in the Output tab.")
+print("Done!")
