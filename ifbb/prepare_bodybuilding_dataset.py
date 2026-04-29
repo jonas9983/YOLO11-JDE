@@ -144,13 +144,14 @@ class BodybuildingDatasetBuilder:
                 shutil.rmtree(contest_out)
                 continue
             
-            # Use batch inference for speed
-            batch_size = 64
+            # Use batch inference for speed (Increased to 256 for better GPU usage)
+            batch_size = 256
             contest_saved = 0
             for i in range(0, len(available_files), batch_size):
                 batch = available_files[i:i+batch_size]
-                results = self.detector([str(p) for p in batch], verbose=False, device=self.device)
+                results = self.detector([str(p) for p in batch], verbose=False, imgsz=640, device=self.device)
                 
+                # Use min() to avoid IndexError if detector returns more results than batch
                 for j in range(min(len(batch), len(results))):
                     res = results[j]
                     boxes = [b for b in res.boxes if int(b.cls) == 0]
@@ -171,10 +172,13 @@ class BodybuildingDatasetBuilder:
                     
                     contest_saved += 1
             
-            # --- PERSISTENCE: ZIP THIS CONTEST AND MOVE TO OUTPUT ---
+            # --- PERSISTENCE: ZIP LOCALLY THEN MOVE TO DRIVE (Much Faster) ---
             if contest_saved > 0:
-                final_contest_zip = self.output_dir / zip_name
-                shutil.make_archive(str(final_contest_zip.with_suffix('')), 'zip', contest_out)
+                local_zip = Path(f"/tmp/{zip_name}")
+                shutil.make_archive(str(local_zip.with_suffix('')), 'zip', contest_out)
+                
+                final_zip_path = self.output_dir / zip_name
+                shutil.move(str(local_zip), final_zip_path)
                 total_saved += contest_saved
             
             # CLEANUP LOCAL STUFF
