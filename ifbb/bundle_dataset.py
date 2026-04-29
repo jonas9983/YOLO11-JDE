@@ -27,11 +27,33 @@ def bundle_dataset(input_dir, output_zip_path):
     
     # 1. UNZIP ALL TO LOCAL STORAGE
     for z in tqdm(zip_files, desc="Extracting ZIPs locally"):
+        local_zip_path = Path(f"/tmp/bundler_{z.name}")
+        
+        # Robust Copy with Retries
+        success = False
+        for attempt in range(3):
+            try:
+                if local_zip_path.exists(): local_zip_path.unlink()
+                shutil.copy2(z, local_zip_path)
+                success = True
+                break
+            except Exception as e:
+                print(f"  [RETRY {attempt+1}] Copy failed for {z.name}: {e}")
+                import time
+                time.sleep(2)
+        
+        if not success:
+            print(f"  [CRITICAL] Could not copy {z.name} after 3 attempts. Skipping.")
+            continue
+
+        # Extract from local disk (much faster and safer)
         try:
-            with zipfile.ZipFile(z, 'r') as zip_ref:
+            with zipfile.ZipFile(local_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_extract_dir)
+            local_zip_path.unlink() # Delete local copy immediately
         except Exception as e:
             print(f"  [ERROR] Failed to extract {z.name}: {e}")
+            if local_zip_path.exists(): local_zip_path.unlink()
             
     # 2. CREATE MASTER ZIP
     print(f"\nCreating Master ZIP (this may take a while)...")
