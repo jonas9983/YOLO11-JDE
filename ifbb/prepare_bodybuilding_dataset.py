@@ -149,7 +149,9 @@ class BodybuildingDatasetBuilder:
                 batch = available_files[i:i+batch_size]
                 results = self.detector([str(p) for p in batch], verbose=False, device=self.device)
                 
-                for j, res in enumerate(results):
+                # Use min() to avoid IndexError if detector returns more results than batch
+                for j in range(min(len(batch), len(results))):
+                    res = results[j]
                     # We only care about people
                     boxes = [b for b in res.boxes if int(b.cls) == 0]
                     if not boxes: continue
