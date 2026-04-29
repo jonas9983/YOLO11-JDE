@@ -103,18 +103,11 @@ class BodybuildingDatasetBuilder:
         
         print(f"Found {len(all_rows)} images across {len(contests)} contests in selected divisions.")
         
-        # Create Flat structure
-        img_out = self.output_dir / "images"
-        lbl_out = self.output_dir / "labels"
-        img_out.mkdir(exist_ok=True)
-        lbl_out.mkdir(exist_ok=True)
-        
         total_saved = 0
         
         # 2. PROCESS EACH CONTEST
         for (year, contest_name), images in tqdm(contests.items(), desc="Processing Contests"):
             if self.is_contest_processed(year, contest_name):
-                # tqdm.write(f"  [SKIP] {year} {contest_name} already processed.")
                 continue
 
             zip_name = f"{year}_{self._sanitize(contest_name)}.zip"
@@ -135,12 +128,20 @@ class BodybuildingDatasetBuilder:
                 print(f"  [ERROR] Extraction failed for {zip_name}: {e}")
                 continue
             
+            # Create a TEMPORAL contest output folder
+            contest_out = Path(f"/tmp/contest_out_{year}_{self._sanitize(contest_name)}")
+            img_out = contest_out / "images"
+            lbl_out = contest_out / "labels"
+            img_out.mkdir(parents=True, exist_ok=True)
+            lbl_out.mkdir(parents=True, exist_ok=True)
+
             # Filter and Detect
             file_to_athlete = {f: a for a, f in images}
             available_files = [f for f in self.temp_unzip_dir.glob("**/*") if f.name in file_to_athlete]
             
             if not available_files: 
                 self._mark_contest_processed(year, contest_name)
+                shutil.rmtree(contest_out)
                 continue
             
             # Use batch inference for speed
@@ -150,14 +151,11 @@ class BodybuildingDatasetBuilder:
                 batch = available_files[i:i+batch_size]
                 results = self.detector([str(p) for p in batch], verbose=False, device=self.device)
                 
-                # Use min() to avoid IndexError if detector returns more results than batch
                 for j in range(min(len(batch), len(results))):
                     res = results[j]
-                    # We only care about people
                     boxes = [b for b in res.boxes if int(b.cls) == 0]
                     if not boxes: continue
                     
-                    # Take the most confident box
                     best = sorted(boxes, key=lambda x: x.conf, reverse=True)[0]
                     xywh = best.xywhn[0].cpu().numpy()
                     
@@ -165,31 +163,31 @@ class BodybuildingDatasetBuilder:
                     athlete_name = file_to_athlete[orig_file.name]
                     athlete_id = self._get_id(athlete_name)
                     
-                    # Final filename: athleteID_originalName
                     save_name = f"{athlete_id}_{orig_file.name}"
                     shutil.copy(orig_file, img_out / save_name)
                     
-                    # YOLO label: cls x y w h athlete_id
                     with open(lbl_out / f"{Path(save_name).stem}.txt", "w") as f:
                         f.write(f"0 {xywh[0]:.6f} {xywh[1]:.6f} {xywh[2]:.6f} {xywh[3]:.6f} {athlete_id}")
                     
                     contest_saved += 1
             
-            total_saved += contest_saved
+            # --- PERSISTENCE: ZIP THIS CONTEST AND MOVE TO OUTPUT ---
+            if contest_saved > 0:
+                final_contest_zip = self.output_dir / zip_name
+                shutil.make_archive(str(final_contest_zip.with_suffix('')), 'zip', contest_out)
+                total_saved += contest_saved
+            
+            # CLEANUP LOCAL STUFF
+            shutil.rmtree(contest_out)
+            if self.temp_unzip_dir.exists(): shutil.rmtree(self.temp_unzip_dir)
+            
+            # MARK AS DONE
             self._mark_contest_processed(year, contest_name)
         
-        # Cleanup
-        if self.temp_unzip_dir.exists(): shutil.rmtree(self.temp_unzip_dir)
-        
         print(f"\n--- DONE ---")
-        print(f"Total images saved to flat dataset: {total_saved}")
+        print(f"Total images saved to persistent zips: {total_saved}")
         print(f"Unique athletes identified: {len(self.id_map)}")
-        
-        # Create single ZIP
-        print(f"Zipping final dataset...")
-        final_zip = self.output_dir.parent / "bodybuilding_jde_dataset.zip"
-        shutil.make_archive(str(final_zip.with_suffix('')), 'zip', self.output_dir)
-        print(f"MASTER DATASET CREATED: {final_zip.absolute()}")
+        print(f"All contest zips are located in: {self.output_dir.absolute()}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
