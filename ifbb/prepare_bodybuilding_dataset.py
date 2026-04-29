@@ -87,10 +87,11 @@ class BodybuildingDatasetBuilder:
         cursor = conn.cursor()
         
         # 1. FIND RELEVANT CONTESTS AND IMAGES
-        # We search for all images belonging to the target divisions
         div_placeholders = ','.join(['?'] * len(target_divisions))
         query = f"SELECT year, contest_name, athlete_name, image_filename FROM athletes WHERE division IN ({div_placeholders})"
-        cursor.execute(query, target_divisions)
+        params = list(target_divisions)
+
+        cursor.execute(query, params)
         all_rows = cursor.fetchall()
         
         # Group by contest to minimize unzipping
@@ -200,4 +201,5 @@ if __name__ == "__main__":
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     builder = BodybuildingDatasetBuilder(args.source, args.db, args.output, device=device)
+    
     builder.build(target_divisions=args.divisions.split(','))
