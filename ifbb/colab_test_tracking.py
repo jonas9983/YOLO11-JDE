@@ -11,24 +11,28 @@ if not os.path.exists("/content/drive"):
 
 # --- 2. CONFIGURATION (UPDATE THESE!) ---
 # Point directly to your best.pt file in Google Drive!
-WEIGHTS_PT = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training/results/2025_EVLS_PRAGUE_PRO/weights/best.pt"
-TEST_VIDEO = "/content/drive/MyDrive/personal/Bodybuilding_Dataset/Videos/2025_EVLS_Prague/OPEN BODYBUILDING - EVLS PRAG PRO 2025 (FINALE IN 4K).mp4"
+WEIGHTS_PT = "/content/drive/MyDrive/iron_insights/Bodybuilding_Model_Training/results/3_divisions_incomplete/weights/best.pt"
+TEST_VIDEO = "/content/drive/MyDrive/iron_insights/Bodybuilding_Dataset/Videos/2025_EVLS_Prague/OPEN BODYBUILDING - EVLS PRAG PRO 2025 (FINALE IN 4K).mp4"
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
-BRANCH = "feat/multi-gpu-training" 
+BRANCH = "feat/recognition-debug" 
 
 # PATHS IN DRIVE
-DRIVE_BASE = "/content/drive/MyDrive/personal/Bodybuilding_Model_Training"
-DB_FILE = f"{DRIVE_BASE}/dataset_builder.db"
-# You need the images zip of the competition to rebuild the gallery
-DATASET_IMAGES_ZIP = f"{DRIVE_BASE}/ifbb_jde_dataset/2025_IFBB_EVLS_Prague_Pro.zip" 
+DRIVE_BASE = "/content/drive/MyDrive/iron_insights/Bodybuilding_Model_Training"
+DB_FILE = f"{DRIVE_BASE}/ifbb_jde_dataset_clean/dataset_id_mapping.db"
+# You need the images zip of the competition to rebuild the gallery.
+# Note: If you want to build the gallery using images from ALL competitions,
+# you should unzip the complete dataset here instead of just one competition.
+DATASET_IMAGES_ZIP = f"{DRIVE_BASE}/ifbb_jde_dataset_clean/2025_IFBB_EVLS_Prague_Pro.zip" 
 DRIVE_GALLERY_PATH = f"{DRIVE_BASE}/athlete_gallery.pt"
 
 # --- PERSISTENT SEGMENTS ---
 # Store segments in Drive so they survive session restarts!
-SEGMENT_DIR = "/content/drive/MyDrive/YOLO11_Results/segments"
+SEGMENT_DIR = "/content/drive/MyDrive/iron_insights/tracking_results/segments"
 os.makedirs(SEGMENT_DIR, exist_ok=True)
 
-CONTEST_FILTER = "Prague_Pro" 
+# Set to empty string "" to build the gallery with athletes from ALL competitions
+# in the dataset. Otherwise, it will only use images with this name in the path.
+CONTEST_FILTER = "" 
 
 # Set to True because your gallery is outdated and needs to be rebuilt with the new model
 FORCE_REBUILD_GALLERY = True
@@ -85,7 +89,7 @@ else:
     if not os.path.exists("/content/dataset/ifbb_jde/images"):
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images", quiet=True)
     
-    filter_cmd = f"--contest {CONTEST_FILTER}" if CONTEST_FILTER else ""
+    filter_cmd = f"--contest '{CONTEST_FILTER}'" if CONTEST_FILTER else ""
     run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} {filter_cmd}', "Creating Gallery")
     !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
 
@@ -106,12 +110,12 @@ else:
     run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 "{LOCAL_VIDEO}"', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
-run_step(f'python ifbb/track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz {IMGSZ} --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
+run_step(f'python ifbb/track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "/content/drive/MyDrive/iron_insights/tracking_results/tracked_result.mp4" --conf 0.5 --imgsz {IMGSZ} --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
 OUTPUT_NAME = f"tracking_{START_FRAME}_{END_FRAME}"
-run_step(f'mkdir -p "/content/drive/MyDrive/YOLO11_Results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/YOLO11_Results/{OUTPUT_NAME}.mp4"', "Saving Result", quiet=True)
+run_step(f'mkdir -p "/content/drive/MyDrive/iron_insights/tracking_results/" && cp "/content/drive/MyDrive/iron_insights/tracking_results/tracked_result.mp4" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}.mp4"', "Saving Result", quiet=True)
 if os.path.exists("tracked_result_debug_log.csv"):
-    !cp "tracked_result_debug_log.csv" "/content/drive/MyDrive/YOLO11_Results/{OUTPUT_NAME}_debug.csv"
+    !cp "tracked_result_debug_log.csv" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}_debug.csv"
 
-print(f"\nDONE! Results are in your Drive folder: YOLO11_Results")
+print(f"\nDONE! Results are in your Drive folder: /content/drive/MyDrive/iron_insights/tracking_results/")

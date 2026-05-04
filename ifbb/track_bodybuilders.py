@@ -59,12 +59,25 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     print(f"Tracking bodybuilders...")
     
     count = 0
+    frames_processed = 0
     # mininterval=2.0 prevents tqdm from flooding the Colab console
     with tqdm(total=num_to_process, mininterval=2.0) as pbar:
         while cap.isOpened():
             success, frame = cap.read()
             if not success or (count >= num_to_process): 
                 break
+
+            # Skip frames logic
+            if count % frame_skip != 0:
+                # Still need to write the un-annotated frame (or previous annotated frame) to keep video smooth?
+                # Actually, usually tracking with frame skip either duplicates previous boxes or just processes fewer frames.
+                # If we process every Nth frame, we only track and draw on that frame. For a clean output video, 
+                # we could just write the unannotated frame or just skip it altogether (which speeds up video).
+                # But to preserve video length, we just write the raw frame.
+                out.write(frame)
+                pbar.update(1)
+                count += 1
+                continue
 
             results = model.track(
                 source=frame, 
@@ -233,6 +246,7 @@ if __name__ == "__main__":
     parser.add_argument("--start-frame", type=int, default=0)
     parser.add_argument("--end-frame", type=int, default=None)
     parser.add_argument("--gallery", type=str, default=None)
+    parser.add_argument("--frame-skip", type=int, default=1, help="Process every Nth frame")
     
     args = parser.parse_args()
-    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame, args.gallery)
+    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame, args.gallery, args.frame_skip)
