@@ -94,6 +94,19 @@ class BodybuildingDatasetBuilder:
         cursor.execute(query, params)
         all_rows = cursor.fetchall()
         
+        # Filter out group shots (COMPARISONS and AWARDS) which break the single-athlete assumption
+        filtered_rows = []
+        for year, contest, athlete, filename in all_rows:
+            athlete_upper = str(athlete).upper()
+            filename_upper = str(filename).upper()
+            if "COMPARISONS" in athlete_upper or "AWARDS" in athlete_upper or "OVERALL" in athlete_upper:
+                continue
+            if "COMPARISONS" in filename_upper or "AWARDS" in filename_upper or "OVERALL" in filename_upper:
+                continue
+            filtered_rows.append((year, contest, athlete, filename))
+            
+        all_rows = filtered_rows
+        
         # Group by contest to minimize unzipping
         contests = {}
         for year, contest, athlete, filename in all_rows:
