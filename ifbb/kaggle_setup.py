@@ -22,7 +22,7 @@ SYNC_DIR = None
 
 RESUME_TRAINING = False 
 REPO_URL = "https://github.com/jonas9983/YOLO11-JDE.git"
-BRANCH = "feat/multi-gpu-training"
+BRANCH = "feat/recognition-debug"
 
 # --- 2. REPO SETUP ---
 %cd /kaggle/working
