@@ -63,7 +63,9 @@ def bundle_dataset(input_dir, output_zip_path):
     
     # 3. MOVE TO DRIVE
     print(f"Moving Master ZIP to Drive...")
-    shutil.move(str(local_master_zip.with_suffix('.zip')), output_zip_path)
+    master_zip_file = local_master_zip.with_suffix('.zip')
+    shutil.copyfile(str(master_zip_file), str(output_zip_path))
+    master_zip_file.unlink()
     
     # 4. CLEANUP
     shutil.rmtree(temp_extract_dir)
