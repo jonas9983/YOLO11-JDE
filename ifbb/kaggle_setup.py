@@ -117,6 +117,7 @@ if not data_ready:
         !ls -R /tmp/jde_raw | head -n 20
         import sys; sys.exit(1)
 
+    random.seed(42)  # Added to guarantee the exact same validation split every time!
     random.shuffle(all_images)
     seen_hashes = set()
     athlete_images = defaultdict(list)
@@ -218,10 +219,10 @@ sync_cmd = f"--sync_dir {SYNC_DIR}" if SYNC_DIR else ""
 
 if RESUME_TRAINING:
     resume_cmd = f"--resume {RESUME_WEIGHTS}"
-    amp_cmd = "" 
 else:
     resume_cmd = ""
-    amp_cmd = "--amp" 
+
+amp_cmd = "--amp" 
 
 !python train.py --data datasets/ifbb_jde/ifbb_jde.yaml \
                 --project ifbb_jde \
