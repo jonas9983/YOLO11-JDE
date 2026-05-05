@@ -55,6 +55,10 @@ def extract_id(link):
 def recursive_unzip(zip_path, extract_to):
     with zipfile.ZipFile(zip_path, 'r') as z:
         z.extractall(extract_to)
+        
+    # CRITICAL DISK SAVER: Delete the master zip immediately after extracting its contents
+    if Path(zip_path).exists():
+        Path(zip_path).unlink()
     
     nested_zips = list(Path(extract_to).rglob("*.zip"))
     if nested_zips:
@@ -168,7 +172,7 @@ if not data_ready:
         
         for img_path, label_path in pairs:
             dest_img = f"datasets/ifbb_jde/{split}/images/{img_path.name}"
-            shutil.copy(img_path, dest_img)
+            shutil.move(str(img_path), dest_img)
             
             with open(label_path, "r") as f:
                 lines = f.readlines()
