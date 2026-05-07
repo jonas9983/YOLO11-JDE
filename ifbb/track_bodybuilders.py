@@ -15,7 +15,7 @@ def extract_id(link):
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None, gallery_path=None):
+def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None, gallery_path=None, frame_skip=1):
     # 1. Handle Source
     is_drive = "drive.google.com" in source or len(source) == 33
     if is_drive:

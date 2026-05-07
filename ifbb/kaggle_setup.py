@@ -85,10 +85,17 @@ if not data_ready:
     
     !mkdir -p /tmp/jde_downloads
     !mkdir -p /tmp/jde_raw
-    
+    raw_source = "/tmp/jde_raw"
     if KAGGLE_DATASET_FOLDER and os.path.exists(KAGGLE_DATASET_FOLDER):
         print(f"Detected Native Kaggle Dataset at {KAGGLE_DATASET_FOLDER}...")
         contest_zips = list(Path(KAGGLE_DATASET_FOLDER).rglob("*.zip"))
+        if len(contest_zips) == 0:
+            print("Kaggle automatically unzipped the dataset! Reading directly from mount...")
+            raw_source = KAGGLE_DATASET_FOLDER
+        else:
+            print(f"Found {len(contest_zips)} archive(s). Unzipping recursively...")
+            for z in contest_zips:
+                recursive_unzip(z, "/tmp/jde_raw/")
     else:
         print("Downloading dataset from Google Drive...")
         if "folder" in DRIVE_LINK or "drive.google.com/drive/folders/" in DRIVE_LINK:
@@ -101,57 +108,47 @@ if not data_ready:
             !gdown {ZIP_ID} -O /tmp/jde_downloads/master_dataset.zip
             contest_zips = [Path("/tmp/jde_downloads/master_dataset.zip")]
     
-    print(f"Found {len(contest_zips)} archive(s). Unzipping recursively...")
-    
-    if len(contest_zips) == 0:
-        print("[CRITICAL ERROR] No zip files found!")
-        import sys; sys.exit(1)
+        print(f"Found {len(contest_zips)} archive(s). Unzipping recursively...")
         
-    for z in contest_zips:
-        recursive_unzip(z, "/tmp/jde_raw/")
+        if len(contest_zips) == 0:
+            print("[CRITICAL ERROR] No zip files found!")
+            import sys; sys.exit(1)
+            
+        for z in contest_zips:
+            recursive_unzip(z, "/tmp/jde_raw/")
         
     print("Splitting Data and Injecting JDE IDs...")
     for p in ["train/images", "train/labels", "val/images", "val/labels"]:
         os.makedirs(f"datasets/ifbb_jde/{p}", exist_ok=True)
     
-    all_images = list(Path("/tmp/jde_raw").rglob("*.jpg")) + list(Path("/tmp/jde_raw").rglob("*.png")) + list(Path("/tmp/jde_raw").rglob("*.jpeg"))
+    all_images = list(Path(raw_source).rglob("*.jpg")) + list(Path(raw_source).rglob("*.png")) + list(Path(raw_source).rglob("*.jpeg"))
     
     if len(all_images) == 0:
-        print("[CRITICAL ERROR] No images found inside the extracted zip files!")
-        !ls -R /tmp/jde_raw | head -n 20
+        print(f"[CRITICAL ERROR] No images found in {raw_source}!")
+        !ls -R {raw_source} | head -n 20
         import sys; sys.exit(1)
 
     random.seed(42)  # Added to guarantee the exact same validation split every time!
     random.shuffle(all_images)
-    seen_hashes = set()
+    seen_filenames = set()
     athlete_images = defaultdict(list)
     duplicates_skipped = 0
 
+    # --- FAST DEDUP: Use filename instead of MD5 (avoids reading 24GB from network mount) ---
+    print("Finding all labels (one fast scan to avoid 600k network checks)...")
+    all_labels = list(Path(raw_source).rglob("*.txt"))
+    label_dict = {l.name: l for l in all_labels}
+
+    print(f"Scanning {len(all_images)} images for duplicates (filename-based)...")
     for img_path in all_images:
-        try:
-            with open(img_path, "rb") as f:
-                file_hash = hashlib.md5(f.read()).hexdigest()
-        except:
-            continue
-        
-        if file_hash in seen_hashes:
+        if img_path.name in seen_filenames:
             duplicates_skipped += 1
             continue
-        seen_hashes.add(file_hash)
+        seen_filenames.add(img_path.name)
 
         athlete_id = img_path.name.split('_')[0]
         label_name = f"{img_path.stem}.txt"
-        potential_labels = [
-            img_path.parent.parent / "labels" / label_name, 
-            img_path.parent / label_name,                   
-            Path(str(img_path.parent).replace("images", "labels")) / label_name 
-        ]
-        
-        label_path = None
-        for p in potential_labels:
-            if p.exists():
-                label_path = p
-                break
+        label_path = label_dict.get(label_name)
                 
         if label_path:
             athlete_images[athlete_id].append((img_path, label_path))
@@ -165,6 +162,11 @@ if not data_ready:
     val_ids = set(val_sample)
     athlete_to_idx = {name: i for i, name in enumerate(unique_ids)}
     
+    # Detect if source is a read-only mount (Kaggle input) -> use symlinks to save disk & time
+    use_symlinks = raw_source.startswith("/kaggle/input")
+    if use_symlinks:
+        print("Using symlinks for images (read-only Kaggle mount detected, saves disk space!)...")
+    
     valid_pairs = 0
     for athlete_id, pairs in athlete_images.items():
         split = "val" if athlete_id in val_ids else "train"
@@ -172,7 +174,11 @@ if not data_ready:
         
         for img_path, label_path in pairs:
             dest_img = f"datasets/ifbb_jde/{split}/images/{img_path.name}"
-            shutil.move(str(img_path), dest_img)
+            
+            if use_symlinks:
+                os.symlink(str(img_path), dest_img)
+            else:
+                shutil.move(str(img_path), dest_img)
             
             with open(label_path, "r") as f:
                 lines = f.readlines()

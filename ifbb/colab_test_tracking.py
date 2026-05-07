@@ -110,11 +110,11 @@ else:
     run_step(f'ffmpeg -y -ss {START_SEC} -i "{TEST_VIDEO}" -t {DURATION_SEC} -vf "scale=1920:1080" -c:v h264_nvenc -preset p1 "{LOCAL_VIDEO}"', "GPU Video Conversion")
 
 # --- 8. RUN TRACKING ---
-run_step(f'python ifbb/track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "/content/drive/MyDrive/iron_insights/tracking_results/tracked_result.mp4" --conf 0.5 --imgsz {IMGSZ} --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
+run_step(f'python ifbb/track_bodybuilders.py --model "{MODEL_PATH}" --source "{LOCAL_VIDEO}" --output "tracked_result.mp4" --conf 0.5 --imgsz {IMGSZ} --device 0 --gallery "athlete_gallery.pt" --start-frame 0', "Running Tracking")
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
 OUTPUT_NAME = f"tracking_{START_FRAME}_{END_FRAME}"
-run_step(f'mkdir -p "/content/drive/MyDrive/iron_insights/tracking_results/" && cp "/content/drive/MyDrive/iron_insights/tracking_results/tracked_result.mp4" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}.mp4"', "Saving Result", quiet=True)
+run_step(f'mkdir -p "/content/drive/MyDrive/iron_insights/tracking_results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}.mp4"', "Saving Result", quiet=True)
 if os.path.exists("tracked_result_debug_log.csv"):
     !cp "tracked_result_debug_log.csv" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}_debug.csv"
 
