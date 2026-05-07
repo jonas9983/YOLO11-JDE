@@ -114,8 +114,9 @@ run_step(f'python ifbb/track_bodybuilders.py --model "{MODEL_PATH}" --source "{L
 
 # --- 9. SAVE OUTPUT BACK TO DRIVE ---
 OUTPUT_NAME = f"tracking_{START_FRAME}_{END_FRAME}"
-run_step(f'mkdir -p "/content/drive/MyDrive/iron_insights/tracking_results/" && cp "tracked_result.mp4" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}.mp4"', "Saving Result", quiet=True)
+FINAL_SAVE_DIR = f"{DRIVE_BASE}/tracking_results"
+run_step(f'mkdir -p "{FINAL_SAVE_DIR}" && cp "tracked_result.mp4" "{FINAL_SAVE_DIR}/{OUTPUT_NAME}.mp4"', "Saving Result", quiet=True)
 if os.path.exists("tracked_result_debug_log.csv"):
-    !cp "tracked_result_debug_log.csv" "/content/drive/MyDrive/iron_insights/tracking_results/{OUTPUT_NAME}_debug.csv"
+    !cp "tracked_result_debug_log.csv" "{FINAL_SAVE_DIR}/{OUTPUT_NAME}_debug.csv"
 
-print(f"\nDONE! Results are in your Drive folder: /content/drive/MyDrive/iron_insights/tracking_results/")
+print(f"\nDONE! Results are in your Drive folder: {FINAL_SAVE_DIR}")
