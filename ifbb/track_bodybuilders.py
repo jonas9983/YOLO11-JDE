@@ -15,7 +15,7 @@ def extract_id(link):
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None, gallery_path=None, frame_skip=1):
+def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=0, start_frame=0, end_frame=None, gallery_path=None, frame_skip=1, half=False):
     # 1. Handle Source
     is_drive = "drive.google.com" in source or len(source) == 33
     if is_drive:
@@ -86,6 +86,7 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                 persist=True, 
                 tracker="jdetracker.yaml", 
                 device=device,
+                half=half,
                 verbose=False
             )
             
@@ -247,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--end-frame", type=int, default=None)
     parser.add_argument("--gallery", type=str, default=None)
     parser.add_argument("--frame-skip", type=int, default=1, help="Process every Nth frame")
+    parser.add_argument("--half", action="store_true", help="Use FP16 half precision for faster GPU inference")
     
     args = parser.parse_args()
-    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame, args.gallery, args.frame_skip)
+    run_tracking(args.model, args.source, args.output, args.imgsz, args.conf, args.device, args.start_frame, args.end_frame, args.gallery, args.frame_skip, args.half)
