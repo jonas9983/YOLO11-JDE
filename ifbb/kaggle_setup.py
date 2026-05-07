@@ -153,6 +153,15 @@ if not data_ready:
         if label_path:
             athlete_images[athlete_id].append((img_path, label_path))
 
+    # --- FILTER UNDER-REPRESENTED ATHLETES ---
+    MIN_IMAGES_PER_ATHLETE = 10
+    filtered_athlete_images = {aid: pairs for aid, pairs in athlete_images.items() if len(pairs) >= MIN_IMAGES_PER_ATHLETE}
+    
+    dropped_athletes = len(athlete_images) - len(filtered_athlete_images)
+    print(f"Dropped {dropped_athletes} athletes who had fewer than {MIN_IMAGES_PER_ATHLETE} images.")
+    
+    athlete_images = filtered_athlete_images
+
     # --- CRITICAL FIX: STABLE IDs ---
     # Sort alphabetically so IDs stay consistent across training runs
     unique_ids = sorted(list(athlete_images.keys()))

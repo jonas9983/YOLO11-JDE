@@ -7,7 +7,7 @@ from tqdm import tqdm
 from ultralytics import YOLO
 import cv2
 
-def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960, division=None):
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960, division=None, max_poses=50):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -19,6 +19,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Contest Filter: {contest_name if contest_name else 'ALL'}")
     print(f"Division Filter: {division if division else 'ALL'}")
     print(f"Image Size: {imgsz}")
+    print(f"Max Poses per Athlete: {max_poses}")
     
     if not os.path.exists(db_path):
         print(f"ERROR: Database file not found at {db_path}")
@@ -105,8 +106,8 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
         final_gallery[name] = []
         
         for img_path in paths:
-            # THE MAGIC SPEEDUP: Stop as soon as we get 20 good embeddings!
-            if len(final_gallery[name]) >= 20:
+            # Stop as soon as we get the required number of good embeddings
+            if len(final_gallery[name]) >= max_poses:
                 break
                 
             # Load the raw image
@@ -146,6 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--contest", type=str, default=None, help="Filter images by contest name in path")
     parser.add_argument("--division", type=str, default=None, help="Filter athletes by division name")
     parser.add_argument("--imgsz", type=int, default=960, help="Image size for model inference")
+    parser.add_argument("--max-poses", type=int, default=50, help="Maximum number of embeddings to extract per athlete")
     args = parser.parse_args()
     
-    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz, args.division)
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz, args.division, args.max_poses)

@@ -31,9 +31,23 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
     model = YOLO(model_path, task="jde")
     
     gallery = None
+    gallery_embeds = None
+    gallery_names = []
     if gallery_path and os.path.exists(gallery_path):
         print(f"Loading athlete gallery: {gallery_path}")
         gallery = torch.load(gallery_path)
+        
+        # Pre-compute flattened gallery for vectorized matching
+        flat_embeds = []
+        for name, embeds in gallery.items():
+            for e in embeds:
+                flat_embeds.append(e)
+                gallery_names.append(name)
+        
+        if flat_embeds:
+            gallery_embeds = np.vstack(flat_embeds)
+            # Pre-normalize the gallery matrix
+            gallery_embeds = gallery_embeds / (np.linalg.norm(gallery_embeds, axis=1, keepdims=True) + 1e-6)
     
     track_to_athlete = {} # track_id -> athlete_name
     track_votes = {}      # track_id -> {athlete_name: cumulative_similarity}
@@ -119,20 +133,23 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                         
                         matches = [] # List of (sim, name)
                         
-                        if track_id in track_embeds and gallery:
+                        if track_id in track_embeds and gallery_embeds is not None:
                             embed = track_embeds[track_id]
                             # Normalize embedding for consistent cosine similarity
                             embed = embed / (np.linalg.norm(embed) + 1e-6)
                             
-                            for athlete_name, ref_embed_list in gallery.items():
-                                # --- 2. MULTI-POSE MATCHING ---
-                                # Check against ALL saved poses for this athlete and take the highest
-                                best_pose_sim = 0.0
-                                for ref_embed in ref_embed_list:
-                                    sim = cosine_similarity(embed, ref_embed)
-                                    if sim > best_pose_sim:
-                                        best_pose_sim = sim
-                                matches.append((best_pose_sim, athlete_name))
+                            # --- 2. VECTORIZED MULTI-POSE MATCHING ---
+                            # Matrix Multiply (Query, All Gallery Embeddings) -> Blazing Fast
+                            sims = np.dot(gallery_embeds, embed)
+                            
+                            # Group by athlete to find the max similarity per athlete
+                            athlete_sims = {}
+                            for j, sim in enumerate(sims):
+                                name = gallery_names[j]
+                                if sim > athlete_sims.get(name, 0.0):
+                                    athlete_sims[name] = sim
+                                    
+                            matches = [(sim, name) for name, sim in athlete_sims.items()]
                             
                             # Sort by similarity descending
                             matches = sorted(matches, key=lambda x: x[0], reverse=True)
