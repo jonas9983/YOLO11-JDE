@@ -111,23 +111,11 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                 elif isinstance(feat, list) and len(feat) > 0:
                                     track_embeds[t.track_id] = feat[-1]
                     
+                    # --- 1. THE LOCK ---
+                    # WE REMOVED THE PERMANENT LOCK!
+                    # It caused massive misidentifications if the tracker re-used IDs or drifted.
+
                     for i, track_id in enumerate(ids):
-                        
-                        # --- 1. THE LOCK ---
-                        # If we already securely identified this track, skip the math entirely!
-                        if track_id in track_to_athlete and not track_to_athlete[track_id].startswith("ID:"):
-                            tracking_logs.append({
-                                "frame": frame_num,
-                                "track_id": track_id,
-                                "winner_match": track_to_athlete[track_id],
-                                "best_match": track_to_athlete[track_id],
-                                "best_sim": 1.0, # Locked
-                                "second_match": "None",
-                                "second_sim": 0.0,
-                                "margin": 1.0,
-                                "bbox": boxes[i].tolist()
-                            })
-                            continue
                         
                         matches = [] # List of (sim, name)
                         
@@ -153,27 +141,35 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                 best_sim, best_name = matches[0]
                                 second_sim, second_name = matches[1] if len(matches) > 1 else (0.0, "None")
                                 
-                                # --- 3. TEMPORAL VOTING & LOCKING ---
+                                # --- 3. ROLLING WINDOW VOTING ---
                                 if track_id not in track_votes:
-                                    track_votes[track_id] = {}
+                                    from collections import deque
+                                    track_votes[track_id] = deque(maxlen=60) # Last 60 frames rolling window
                                 
-                                # Only count a vote if the match is ACTUALLY good (>0.75)
-                                if best_sim > 0.75:
-                                    if best_name not in track_votes[track_id]:
-                                        track_votes[track_id][best_name] = 0
-                                    track_votes[track_id][best_name] += 1 # 1 frame = 1 vote
+                                # Only count a vote if the match is decent
+                                if best_sim > 0.70:
+                                    track_votes[track_id].append(best_name)
+                                else:
+                                    track_votes[track_id].append("Unknown")
                                 
                                 winner_name = "None"
                                 if len(track_votes[track_id]) > 0:
-                                    winner_name = max(track_votes[track_id].items(), key=lambda x: x[1])[0]
-                                    votes = track_votes[track_id][winner_name]
+                                    # Count votes in the current window
+                                    from collections import Counter
+                                    vote_counts = Counter(track_votes[track_id])
                                     
-                                    # If they get 30 solid frames of recognition, LOCK IT FOREVER
-                                    if votes >= 30: 
-                                        track_to_athlete[track_id] = f"{winner_name}"
-                                        print(f"[TRACKER] Locked Identity for Track {track_id} -> {winner_name}")
+                                    # Get the most common, excluding Unknown if possible
+                                    best_voted_name = vote_counts.most_common(1)[0][0]
+                                    if best_voted_name == "Unknown" and len(vote_counts) > 1:
+                                        best_voted_name = vote_counts.most_common(2)[1][0]
+                                        
+                                    votes = vote_counts[best_voted_name]
+                                    
+                                    # Require at least 15 votes in the last 60 frames to show a name
+                                    if votes >= 15 and best_voted_name != "Unknown": 
+                                        track_to_athlete[track_id] = f"{best_voted_name}"
                                     else:
-                                        track_to_athlete[track_id] = f"ID:{track_id} (Voting {votes}/30)"
+                                        track_to_athlete[track_id] = f"ID:{track_id}"
                                 else:
                                     if track_id not in track_to_athlete:
                                         track_to_athlete[track_id] = f"ID:{track_id}"
@@ -182,7 +178,7 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                 tracking_logs.append({
                                     "frame": frame_num,
                                     "track_id": track_id,
-                                    "winner_match": winner_name,
+                                    "winner_match": track_to_athlete[track_id] if not track_to_athlete[track_id].startswith("ID:") else "None",
                                     "best_match": best_name,
                                     "best_sim": round(float(best_sim), 4),
                                     "second_match": second_name,
