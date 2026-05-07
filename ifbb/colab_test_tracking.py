@@ -90,7 +90,7 @@ else:
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images", quiet=True)
     
     filter_cmd = f"--contest '{CONTEST_FILTER}'" if CONTEST_FILTER else ""
-    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} {filter_cmd}', "Creating Gallery")
+    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} --division "MEN\'S BODYBUILDING" --max-poses 50 {filter_cmd}', "Creating Gallery")
     !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
 
 # --- 7. PERSISTENT VIDEO EXTRACTION ---

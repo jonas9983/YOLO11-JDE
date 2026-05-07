@@ -216,15 +216,15 @@ if not data_ready:
 # --- 5. START TRAINING ---
 import torch
 import wandb
-from kaggle_secrets import UserSecretsClient
 
-try:
-    user_secrets = UserSecretsClient()
-    wandb_key = user_secrets.get_secret("WANDB_API_KEY")
-    wandb.login(key=wandb_key)
+# HARDCODED WANDB KEY (Replace with your actual key before running)
+WANDB_KEY = "YOUR_WANDB_API_KEY_HERE"
+
+if WANDB_KEY and WANDB_KEY != "YOUR_WANDB_API_KEY_HERE":
+    wandb.login(key=WANDB_KEY)
     os.environ["WANDB_MODE"] = "online"
-except:
-    print("WandB Key not found. Using dryrun.")
+else:
+    print("WandB Key not set. Using dryrun.")
     os.environ["WANDB_MODE"] = "dryrun"
 
 num_gpus = torch.cuda.device_count()

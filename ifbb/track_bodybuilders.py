@@ -182,11 +182,23 @@ def run_tracking(model_path, source, output_path, imgsz=1280, conf=0.25, device=
                                         
                                     votes = vote_counts[best_voted_name]
                                     
-                                    # Require at least 15 votes in the last 60 frames to show a name
+                                    current_name = track_to_athlete.get(track_id, "")
+                                    
+                                    # Hysteresis (Stickiness): 
+                                    # Require at least 15 votes to assign a name initially.
+                                    # If a name is already assigned, require the new name to beat the current name by at least 10 votes to switch.
                                     if votes >= 15 and best_voted_name != "Unknown": 
-                                        track_to_athlete[track_id] = f"{best_voted_name}"
+                                        if not current_name.startswith("ID:") and current_name != best_voted_name and current_name != "":
+                                            current_votes = vote_counts[current_name]
+                                            # Only switch if the new guy is dominating the current guy
+                                            if votes >= current_votes + 10:
+                                                track_to_athlete[track_id] = f"{best_voted_name}"
+                                        else:
+                                            # Set for the first time
+                                            track_to_athlete[track_id] = f"{best_voted_name}"
                                     else:
-                                        track_to_athlete[track_id] = f"ID:{track_id}"
+                                        if current_name == "" or current_name.startswith("ID:"):
+                                            track_to_athlete[track_id] = f"ID:{track_id}"
                                 else:
                                     if track_id not in track_to_athlete:
                                         track_to_athlete[track_id] = f"ID:{track_id}"
