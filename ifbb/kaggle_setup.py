@@ -155,10 +155,20 @@ if not data_ready:
 
     # --- FILTER UNDER-REPRESENTED ATHLETES ---
     MIN_IMAGES_PER_ATHLETE = 10
+    MAX_IMAGES_PER_ATHLETE = 50  # Cap to avoid 175k+ image bloat and slow epochs
     filtered_athlete_images = {aid: pairs for aid, pairs in athlete_images.items() if len(pairs) >= MIN_IMAGES_PER_ATHLETE}
     
     dropped_athletes = len(athlete_images) - len(filtered_athlete_images)
     print(f"Dropped {dropped_athletes} athletes who had fewer than {MIN_IMAGES_PER_ATHLETE} images.")
+    
+    # --- CAP OVER-REPRESENTED ATHLETES ---
+    capped_count = 0
+    for aid in filtered_athlete_images:
+        if len(filtered_athlete_images[aid]) > MAX_IMAGES_PER_ATHLETE:
+            filtered_athlete_images[aid] = random.sample(filtered_athlete_images[aid], MAX_IMAGES_PER_ATHLETE)
+            capped_count += 1
+    if capped_count > 0:
+        print(f"Capped {capped_count} athletes to {MAX_IMAGES_PER_ATHLETE} images each (random sample for pose diversity).")
     
     athlete_images = filtered_athlete_images
 
@@ -248,7 +258,7 @@ amp_cmd = "--amp"
                 --name bodybuilding_model \
                 --epochs 100 \
                 --batch {batch_size} \
-                --imgsz 960 \
+                --imgsz 640 \
                 --device {device} \
                 --patience 15 \
                 {sync_cmd} \
