@@ -7,7 +7,7 @@ from tqdm import tqdm
 from ultralytics import YOLO
 import cv2
 
-def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960, division=None, max_poses=50):
+def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_gallery.pt", device=None, contest_name=None, imgsz=960, division=None, max_poses=50, npc_db_path=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -16,6 +16,7 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     print(f"Device: {device}")
     print(f"Dataset Dir: {dataset_dir}")
     print(f"DB Path: {db_path}")
+    print(f"NPC DB Path: {npc_db_path if npc_db_path else 'Not provided (division filter disabled)'}")
     print(f"Contest Filter: {contest_name if contest_name else 'ALL'}")
     print(f"Division Filter: {division if division else 'ALL'}")
     print(f"Image Size: {imgsz}")
@@ -33,30 +34,46 @@ def create_gallery(model_path, dataset_dir, db_path, output_path="athlete_galler
     conn = sqlite3.connect(db_uri, uri=True)
     cursor = conn.cursor()
     
-    # Get all athletes from DB with optional division filter
-    if division:
-        # Note: We use dataset_builder.db for id_mapping, but it doesn't have division.
-        # However, the user might be using npc_database.db as well.
-        # Wait, create_gallery uses db_path which is usually dataset_builder.db.
-        # Let's check if dataset_builder.db has division.
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='id_mapping'")
-        if cursor.fetchone():
-             # Check if it has division column
-             cursor.execute("PRAGMA table_info(id_mapping)")
-             cols = [c[1] for c in cursor.fetchall()]
-             if 'division' in cols:
-                 cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping WHERE division LIKE ?", (f"%{division}%",))
-             else:
-                 print(f"WARNING: 'division' column not found in id_mapping table. Filtering by division might not work as expected if using dataset_builder.db.")
-                 cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
+    # --- DIVISION ALLOWLIST: Query npc_database.db if provided ---
+    division_allowlist = None  # None means no filtering
+    if division and npc_db_path and os.path.exists(npc_db_path):
+        npc_uri = f"{Path(npc_db_path).absolute().as_uri()}?mode=ro"
+        npc_conn = sqlite3.connect(npc_uri, uri=True)
+        npc_cursor = npc_conn.cursor()
+        # Get all athlete names in this division (and optional contest) from the rich NPC DB
+        if contest_name:
+            npc_cursor.execute(
+                "SELECT DISTINCT athlete_name FROM athletes WHERE division LIKE ? AND contest_name LIKE ? "
+                "AND athlete_name NOT LIKE '%COMPARISON%' AND athlete_name NOT LIKE '%AWARD%' AND athlete_name NOT LIKE '%OVERALL%'",
+                (f"%{division}%", f"%{contest_name}%")
+            )
         else:
-            cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
-    else:
-        cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
-        
+            npc_cursor.execute(
+                "SELECT DISTINCT athlete_name FROM athletes WHERE division LIKE ? "
+                "AND athlete_name NOT LIKE '%COMPARISON%' AND athlete_name NOT LIKE '%AWARD%' AND athlete_name NOT LIKE '%OVERALL%'",
+                (f"%{division}%",)
+            )
+        division_allowlist = {row[0].upper() for row in npc_cursor.fetchall()}
+        npc_conn.close()
+        print(f"Division allowlist loaded: {len(division_allowlist)} athletes from NPC DB for division '{division}'.")
+    elif division and not npc_db_path:
+        print(f"WARNING: --division set but --npc_db not provided. Division filter will be skipped.")
+        print(f"         Pass --npc_db /path/to/npc_database.db to enable division filtering.")
+
+    # Open dataset_builder.db for ID->name mapping
+    db_uri = f"{Path(db_path).absolute().as_uri()}?mode=ro"
+    conn = sqlite3.connect(db_uri, uri=True)
+    cursor = conn.cursor()
+    cursor.execute("SELECT athlete_id, athlete_name FROM id_mapping")
     athletes = cursor.fetchall()
-    id_to_name = {str(a[0]): a[1] for a in athletes}
-    print(f"Found {len(id_to_name)} athlete mappings in DB.")
+    conn.close()
+    
+    # Apply division allowlist filter if we have one
+    id_to_name = {}
+    for athlete_id, athlete_name in athletes:
+        if division_allowlist is None or athlete_name.upper() in division_allowlist:
+            id_to_name[str(athlete_id)] = athlete_name
+    print(f"Found {len(id_to_name)} athlete mappings after filtering.")
     
     gallery = {} # name -> list of embeddings
     
@@ -142,12 +159,13 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--db", type=str, required=True)
+    parser.add_argument("--npc_db", type=str, default=None, help="Path to npc_database.db for division-aware filtering")
     parser.add_argument("--output", type=str, default="athlete_gallery.pt")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--contest", type=str, default=None, help="Filter images by contest name in path")
-    parser.add_argument("--division", type=str, default=None, help="Filter athletes by division name")
+    parser.add_argument("--division", type=str, default=None, help="Filter athletes by division name (requires --npc_db)")
     parser.add_argument("--imgsz", type=int, default=960, help="Image size for model inference")
     parser.add_argument("--max-poses", type=int, default=50, help="Maximum number of embeddings to extract per athlete")
     args = parser.parse_args()
     
-    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz, args.division, args.max_poses)
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz, args.division, args.max_poses, args.npc_db)

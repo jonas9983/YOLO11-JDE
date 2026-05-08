@@ -19,6 +19,8 @@ BRANCH = "feat/recognition-debug"
 # PATHS IN DRIVE
 DRIVE_BASE = "/content/drive/MyDrive/iron_insights/Bodybuilding_Model_Training"
 DB_FILE = f"{DRIVE_BASE}/ifbb_jde_dataset_clean/dataset_id_mapping.db"
+# The NPC database has division info - needed for division filtering in the gallery
+NPC_DB_FILE = f"{DRIVE_BASE}/ifbb_jde_dataset_clean/npc_database.db"
 # You need the images zip of the competition to rebuild the gallery.
 # Note: If you want to build the gallery using images from ALL competitions,
 # you should unzip the complete dataset here instead of just one competition.
@@ -29,6 +31,9 @@ DRIVE_GALLERY_PATH = f"{DRIVE_BASE}/athlete_gallery.pt"
 # Store segments in Drive so they survive session restarts!
 SEGMENT_DIR = "/content/drive/MyDrive/iron_insights/tracking_results/segments"
 os.makedirs(SEGMENT_DIR, exist_ok=True)
+
+# Filter gallery to a specific division (requires NPC_DB_FILE). Set to "" to include all divisions.
+DIVISION_FILTER = "MEN'S BODYBUILDING"
 
 # Set to empty string "" to build the gallery with athletes from ALL competitions
 # in the dataset. Otherwise, it will only use images with this name in the path.
@@ -90,7 +95,11 @@ else:
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images", quiet=True)
     
     filter_cmd = f"--contest '{CONTEST_FILTER}'" if CONTEST_FILTER else ""
-    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} --division "MEN\'S BODYBUILDING" --max-poses 50 {filter_cmd}', "Creating Gallery")
+    division_cmd = f"--division '{DIVISION_FILTER}' --npc_db '/content/dataset/ifbb_jde/npc_database.db'" if DIVISION_FILTER else ""
+    # Copy npc_database.db to local if needed for division filtering
+    if DIVISION_FILTER:
+        run_step(f'cp "{NPC_DB_FILE}" /content/dataset/ifbb_jde/npc_database.db', "Copying NPC Database", quiet=True)
+    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} --max-poses 50 {filter_cmd} {division_cmd}', "Creating Gallery")
     !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
 
 # --- 7. PERSISTENT VIDEO EXTRACTION ---
