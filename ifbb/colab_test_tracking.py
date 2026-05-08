@@ -20,7 +20,7 @@ BRANCH = "feat/recognition-debug"
 DRIVE_BASE = "/content/drive/MyDrive/iron_insights/Bodybuilding_Model_Training"
 DB_FILE = f"{DRIVE_BASE}/ifbb_jde_dataset_clean/dataset_id_mapping.db"
 # The NPC database has division info - needed for division filtering in the gallery
-NPC_DB_FILE = f"{DRIVE_BASE}/ifbb_jde_dataset_clean/npc_database.db"
+NPC_DB_FILE = "/content/drive/MyDrive/iron_insights/Bodybuilding_Dataset/npc_database.db"
 # You need the images zip of the competition to rebuild the gallery.
 # Note: If you want to build the gallery using images from ALL competitions,
 # you should unzip the complete dataset here instead of just one competition.
