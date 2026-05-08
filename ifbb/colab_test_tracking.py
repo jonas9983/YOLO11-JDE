@@ -94,8 +94,8 @@ else:
     if not os.path.exists("/content/dataset/ifbb_jde/images"):
         run_step(f'unzip -qo "{DATASET_IMAGES_ZIP}" -d /content/dataset/ifbb_jde/', "Unzipping Training Images", quiet=True)
     
-    filter_cmd = f"--contest '{CONTEST_FILTER}'" if CONTEST_FILTER else ""
-    division_cmd = f"--division '{DIVISION_FILTER}' --npc_db '/content/dataset/ifbb_jde/npc_database.db'" if DIVISION_FILTER else ""
+    filter_cmd = f'--contest "{CONTEST_FILTER}"' if CONTEST_FILTER else ""
+    division_cmd = f'--division "{DIVISION_FILTER}" --npc_db "/content/dataset/ifbb_jde/npc_database.db"' if DIVISION_FILTER else ""
     # Copy npc_database.db to local if needed for division filtering
     if DIVISION_FILTER:
         run_step(f'cp "{NPC_DB_FILE}" /content/dataset/ifbb_jde/npc_database.db', "Copying NPC Database", quiet=True)
