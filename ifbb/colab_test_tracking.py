@@ -96,10 +96,11 @@ else:
     
     filter_cmd = f'--contest "{CONTEST_FILTER}"' if CONTEST_FILTER else ""
     division_cmd = f'--division "{DIVISION_FILTER}" --npc_db "/content/dataset/ifbb_jde/npc_database.db"' if DIVISION_FILTER else ""
+    db_contest_cmd = f'--db-contest "{DB_CONTEST_FILTER}"' if DB_CONTEST_FILTER else ""
     # Copy npc_database.db to local if needed for division filtering
     if DIVISION_FILTER:
         run_step(f'cp "{NPC_DB_FILE}" /content/dataset/ifbb_jde/npc_database.db', "Copying NPC Database", quiet=True)
-    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} --max-poses 50 {filter_cmd} {division_cmd}', "Creating Gallery")
+    run_step(f'python ifbb/create_gallery.py --model "{MODEL_PATH}" --dataset "/content/dataset/ifbb_jde" --db "/content/dataset/ifbb_jde/dataset_builder.db" --output "athlete_gallery.pt" --device cuda --imgsz {IMGSZ} --max-poses 50 {filter_cmd} {division_cmd} {db_contest_cmd}', "Creating Gallery")
     !cp "athlete_gallery.pt" "{DRIVE_GALLERY_PATH}"
 
 # --- 7. PERSISTENT VIDEO EXTRACTION ---
@@ -129,3 +130,4 @@ if os.path.exists("tracked_result_debug_log.csv"):
     !cp "tracked_result_debug_log.csv" "{FINAL_SAVE_DIR}/{OUTPUT_NAME}_debug.csv"
 
 print(f"\nDONE! Results are in your Drive folder: {FINAL_SAVE_DIR}")
+Drive folder: {FINAL_SAVE_DIR}")

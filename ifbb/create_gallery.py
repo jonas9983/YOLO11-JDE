@@ -163,8 +163,14 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="athlete_gallery.pt")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--contest", type=str, default=None, help="Filter images by contest name in path")
+    parser.add_argument("--db-contest", type=str, default=None, help="Filter athletes by contest name in NPC DB")
     parser.add_argument("--division", type=str, default=None, help="Filter athletes by division name (requires --npc_db)")
     parser.add_argument("--imgsz", type=int, default=960, help="Image size for model inference")
+    parser.add_argument("--max-poses", type=int, default=50, help="Maximum number of embeddings to extract per athlete")
+    args = parser.parse_args()
+    
+    create_gallery(args.model, args.dataset, args.db, args.output, args.device, args.contest, args.imgsz, args.division, args.max_poses, args.npc_db, args.db_contest)
+
     parser.add_argument("--max-poses", type=int, default=50, help="Maximum number of embeddings to extract per athlete")
     args = parser.parse_args()
     
